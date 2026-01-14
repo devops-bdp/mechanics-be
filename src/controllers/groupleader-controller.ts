@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { PrismaClient, TaskName } from "@prisma/client";
 
-export class SupervisorController {
+export class GroupLeaderController {
   private prisma: PrismaClient;
 
   constructor(prisma: PrismaClient) {
@@ -766,6 +766,98 @@ export class SupervisorController {
       });
     } catch (error) {
       console.error("Get activity by id error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error:
+          process.env.NODE_ENV === "development" ? String(error) : undefined,
+      });
+    }
+  }
+
+  async updateActivity(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "Authentication required",
+        });
+        return;
+      }
+
+      const { id } = req.params;
+      const activityId = Array.isArray(id) ? id[0] : id;
+      const { activityStatus, description, remarks } = req.body;
+
+      // Check if activity exists
+      const existingActivity = await this.prisma.mechanicActivity.findUnique({
+        where: { id: activityId },
+      });
+
+      if (!existingActivity) {
+        res.status(404).json({
+          success: false,
+          message: "Activity not found",
+        });
+        return;
+      }
+
+      // Build update data
+      const updateData: any = {};
+      if (activityStatus !== undefined) {
+        updateData.activityStatus = activityStatus;
+      }
+      if (description !== undefined) {
+        updateData.description = description;
+      }
+      if (remarks !== undefined) {
+        updateData.remarks = remarks;
+      }
+
+      // Update activity
+      const updatedActivity = await this.prisma.mechanicActivity.update({
+        where: { id: activityId },
+        data: updateData,
+        include: {
+          unit: {
+            select: {
+              id: true,
+              unitCode: true,
+              unitType: true,
+              unitBrand: true,
+              unitDescription: true,
+            },
+          },
+          mechanics: {
+            include: {
+              mechanic: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  nrp: true,
+                  email: true,
+                },
+              },
+              tasks: {
+                orderBy: {
+                  order: "asc",
+                },
+              },
+            },
+          },
+        },
+      });
+
+      res.status(200).json({
+        success: true,
+        message: "Activity updated successfully",
+        data: updatedActivity,
+      });
+    } catch (error) {
+      console.error("Update activity error:", error);
       res.status(500).json({
         success: false,
         message: "Internal server error",

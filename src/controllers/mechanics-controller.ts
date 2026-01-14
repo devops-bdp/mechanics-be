@@ -112,6 +112,122 @@ export class MechanicsController {
     return supportedActivities.includes(activityName);
   }
 
+  // Helper method to update main activity status when activity is started
+  private async updateMainActivityStatusOnStart(activityId: string): Promise<void> {
+    try {
+      const activity = await this.prisma.mechanicActivity.findUnique({
+        where: { id: activityId },
+      });
+
+      if (activity && activity.activityStatus === "PENDING") {
+        await this.prisma.mechanicActivity.update({
+          where: { id: activityId },
+          data: {
+            activityStatus: "IN_PROGRESS",
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Error updating main activity status on start:", error);
+    }
+  }
+
+  // Helper method to update main activity status when all mechanics complete
+  private async updateMainActivityStatus(activityId: string): Promise<void> {
+    try {
+      // Get all mechanics assigned to this activity with their tasks
+      const allAssignments = await this.prisma.activityMechanic.findMany({
+        where: { activityId },
+        include: {
+          tasks: {
+            orderBy: {
+              order: "asc",
+            },
+          },
+        },
+      });
+
+      if (allAssignments.length === 0) {
+        return;
+      }
+
+      // Check if all mechanics have completed their work
+      // For activities with tasks: all tasks must be completed
+      // For activities without tasks: assignment status must be COMPLETED
+      const activity = await this.prisma.mechanicActivity.findUnique({
+        where: { id: activityId },
+      });
+
+      if (!activity) {
+        return;
+      }
+
+      const supportsTasks = this.supportsTasks(activity.activityName);
+      let allCompleted = true;
+
+      for (const assignment of allAssignments) {
+        if (supportsTasks) {
+          // For activities with tasks: check if all tasks are completed
+          if (assignment.tasks.length === 0) {
+            allCompleted = false;
+            break;
+          }
+          
+          const allTasksCompleted = assignment.tasks.every(
+            (task) => task.startedAt && task.stoppedAt
+          );
+          
+          if (!allTasksCompleted) {
+            allCompleted = false;
+            break;
+          }
+        } else {
+          // For activities without tasks: check assignment status
+          if (assignment.status !== "COMPLETED" || !assignment.stoppedAt) {
+            allCompleted = false;
+            break;
+          }
+        }
+      }
+
+      if (allCompleted) {
+        // Update main activity status to COMPLETED
+        await this.prisma.mechanicActivity.update({
+          where: { id: activityId },
+          data: {
+            activityStatus: "COMPLETED",
+          },
+        });
+      } else {
+        // Check if at least one mechanic has started
+        const hasInProgress = allAssignments.some(
+          (assignment) => {
+            if (supportsTasks) {
+              // Check if any task is started
+              return assignment.tasks.some((task) => task.startedAt);
+            } else {
+              return assignment.status === "IN_PROGRESS" || assignment.status === "DELAYED";
+            }
+          }
+        );
+
+        if (hasInProgress) {
+          // Update main activity status to IN_PROGRESS if still PENDING
+          if (activity.activityStatus === "PENDING") {
+            await this.prisma.mechanicActivity.update({
+              where: { id: activityId },
+              data: {
+                activityStatus: "IN_PROGRESS",
+              },
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error updating main activity status:", error);
+    }
+  }
+
   async createWorkTime(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
@@ -778,6 +894,9 @@ export class MechanicsController {
         },
       });
 
+      // Update main activity status to IN_PROGRESS if still PENDING
+      await this.updateMainActivityStatusOnStart(assignment.activityId);
+
       res.status(200).json({
         success: true,
         message: "Activity started successfully",
@@ -1097,6 +1216,9 @@ export class MechanicsController {
           },
         },
       });
+
+      // Update main activity status if all mechanics are completed
+      await this.updateMainActivityStatus(assignment.activityId);
 
       res.status(200).json({
         success: true,
@@ -1526,16 +1648,22 @@ export class MechanicsController {
         },
       });
 
-      // Check if this is the last task in the sequence
-      const lastTask = taskSequence[taskSequence.length - 1];
+      // Check if all tasks for this mechanic are completed
+      const allTasks = await this.prisma.task.findMany({
+        where: { activityMechanicId: assignment.id },
+        orderBy: {
+          order: "asc",
+        },
+      });
 
-      // If last task is stopped, also stop the activity
-      if (taskName === lastTask.taskName) {
+      // Check if all tasks are completed (all have startedAt and stoppedAt)
+      const allTasksCompleted = allTasks.length > 0 && allTasks.every(
+        (t) => t.startedAt && t.stoppedAt
+      );
+
+      // If all tasks are completed, mark the mechanic assignment as COMPLETED
+      if (allTasksCompleted) {
         // Calculate total work time from all tasks
-        const allTasks = await this.prisma.task.findMany({
-          where: { activityMechanicId: assignment.id },
-        });
-
         let totalWorkTime = 0;
         for (const t of allTasks) {
           if (t.startedAt && t.stoppedAt) {
@@ -1554,6 +1682,9 @@ export class MechanicsController {
             totalWorkTime,
           },
         });
+
+        // Update main activity status if all mechanics are completed
+        await this.updateMainActivityStatus(assignment.activityId);
       }
 
       // Get updated assignment with tasks

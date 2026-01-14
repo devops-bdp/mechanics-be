@@ -14,7 +14,29 @@ export class SupervisorRouter {
   }
 
   private setupRoutes(): void {
-    // Assign mechanics to activity - only GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE, SUPERVISOR, ADMIN, SUPERADMIN can access
+    // Get all activities - accessible by SUPERVISOR, ADMIN, SUPERADMIN
+    this.router.get(
+      "/activities",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only SUPERVISOR, ADMIN, or SUPERADMIN can access.",
+          });
+        }
+      },
+      (req, res) => this.supervisorController.getAllActivities(req, res)
+    );
+
+    // Assign mechanics to activity - MUST be before /activities/:id to avoid route conflict
     this.router.post(
       "/activities/:id/assign-mechanics",
       authenticate,
@@ -36,6 +58,28 @@ export class SupervisorRouter {
         }
       },
       (req, res) => this.supervisorController.assignMechanics(req, res)
+    );
+
+    // Get activity by id - accessible by SUPERVISOR, ADMIN, SUPERADMIN
+    this.router.get(
+      "/activities/:id",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only SUPERVISOR, ADMIN, or SUPERADMIN can access.",
+          });
+        }
+      },
+      (req, res) => this.supervisorController.getActivityById(req, res)
     );
 
     // Get mechanics - accessible by GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE, SUPERVISOR, ADMIN, SUPERADMIN

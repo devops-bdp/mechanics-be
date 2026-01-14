@@ -7,6 +7,7 @@ import { PlannerRouter } from "./routes/planner.router";
 import { MechanicsRouter } from "./routes/mechanics.router";
 import { SuperAdminRouter } from "./routes/superadmin.router";
 import { SupervisorRouter } from "./routes/supervisor.router";
+import { GroupLeaderRouter } from "./routes/groupleader.router";
 dotenv.config();
 
 const app = express();
@@ -23,6 +24,7 @@ const plannerRouter = new PlannerRouter();
 const mechanicsRouter = new MechanicsRouter();
 const superAdminRouter = new SuperAdminRouter();
 const supervisorRouter = new SupervisorRouter();
+const groupLeaderRouter = new GroupLeaderRouter();
 
 app.use("/api/auth", authRouter.getRouter());
 app.use("/api/units", unitRouter.getRouter());
@@ -30,6 +32,7 @@ app.use("/api/planner", plannerRouter.getRouter());
 app.use("/api/mechanics", mechanicsRouter.getRouter());
 app.use("/api/superadmin", superAdminRouter.getRouter());
 app.use("/api/supervisor", supervisorRouter.getRouter());
+app.use("/api/groupleader", groupLeaderRouter.getRouter());
 
 // Error handling for JSON parsing and other errors
 app.use(
