@@ -1,0 +1,214 @@
+// prisma/schema.prisma
+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+        
+
+model User {
+  id                  String             @id @default(uuid())
+  email               String             @unique
+  firstName           String
+  lastName            String
+  nrp                 Int                @unique
+  role                Role               @default(USERS)
+  posisi              Posision           @default(MEKANIK)
+  avatar              String?
+  phoneNumber         String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  password            String
+  activityAssignments ActivityMechanic[]
+  workTimes           MechanicWorkTime[]
+}
+
+model Unit {
+  id              String             @id @default(uuid())
+  unitType        UnitType
+  unitBrand       UnitBrand
+  unitCode        String             @unique
+  unitDescription String?
+  unitImage       String?
+  unitStatus      UnitStatus         @default(ACTIVE)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  createdBy       String             @default(uuid())
+  updatedBy       String?
+  activities      MechanicActivity[]
+}
+
+model MechanicActivity {
+  id             String             @id @default(uuid())
+  activityName   ActivityName
+  unitId         String
+  description    String?
+  remarks        String?
+  activityStatus ActivityStatus     @default(PENDING)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  createdBy      String             @default(uuid())
+  updatedBy      String?
+  estimatedStart DateTime
+  mechanics      ActivityMechanic[]
+  unit           Unit               @relation(fields: [unitId], references: [id])
+}
+
+model ActivityMechanic {
+  id            String           @id @default(uuid())
+  activityId    String
+  mechanicId    String
+  status        ActivityStatus   @default(PENDING)
+  startedAt     DateTime?
+  pausedAt      DateTime?
+  stoppedAt     DateTime?
+  pauseReason   PauseReason?
+  totalWorkTime Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  activity      MechanicActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  mechanic      User             @relation(fields: [mechanicId], references: [id])
+  tasks         Task[]
+
+  @@unique([activityId, mechanicId])
+}
+
+model Task {
+  id                String           @id @default(uuid())
+  activityMechanicId String
+  activityMechanic  ActivityMechanic @relation(fields: [activityMechanicId], references: [id], onDelete: Cascade)
+  taskName          TaskName
+  order             Int
+  startedAt         DateTime?
+  stoppedAt         DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([activityMechanicId, taskName])
+}
+
+model MechanicWorkTime {
+  id            String   @id @default(uuid())
+  mechanicId    String
+  date          DateTime
+  workTime      Int
+  pauseTime     Int
+  totalWorkTime Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  createdBy     String   @default(uuid())
+  updatedBy     String?
+  mechanic      User     @relation(fields: [mechanicId], references: [id])
+}
+
+enum Role {
+  ADMIN
+  USERS
+  SUPERADMIN
+}
+
+enum Posision {
+  MEKANIK
+  ELECTRICIAN
+  WELDER
+  TYREMAN
+  GROUP_LEADER_MEKANIK
+  GROUP_LEADER_TYRE
+  SUPERVISOR
+  DEPT_HEAD
+  MANAGEMENT
+  PLANNER
+}
+
+enum ActivityName {
+PERIODIC_SERVICE
+SCHEDULED_MAINTENANCE
+UNSCHEDULED_MAINTENANCE
+TROUBLESHOOTING
+REPAIR_AND_ADJUSTMENT
+GENERAL_REPAIR
+PERIODIC_INSPECTION
+PERIODIC_INSPECTION_TYRE
+PERIODIC_SERVICE_TYRE
+RETORQUE_TYRE
+REPAIR_TYRE
+TROUBLESHOOTING_TYRE
+OTHER
+}
+
+enum ActivityStatus {
+  PENDING
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DELAYED
+}
+
+enum PauseReason {
+  WAITING_PARTS
+  REST_AND_PRAY
+  OTHER
+}
+
+enum TaskName {
+  // Common tasks
+  PREPARING_PART
+  PREPARING_PARTS
+  PREPARING_TOOLS
+  PREPARING_TYRE_AND_MATERIAL
+  TRAVELING
+  WASHING_UNIT
+  WASHING_UNITS
+  PRE_INSPECTION
+  ON_PROCESS
+  PELAKSANAAN_PS
+  PELAKSANAAN_BACKLOG
+  PAP
+  PPM
+  REMOVE_INSTALL_TYRE
+  RETORQUE
+  FINAL_CHECK
+  FINAL_CHECK_AND_GROUND_TEST
+  REPORTING
+  HOUSEKEEPING
+}
+
+enum UnitBrand {
+  VOLVO
+  NISSAN
+  TOYOTA
+  MITSUBISHI
+  KOMATSU
+  LIEBHERR
+  ISUZU
+  DAIHATSU
+  KENT_POWER
+  SANY
+  JIEFANG
+  HYUNDAI
+  FUJI
+  YUCHAI
+  YANMAR
+  DONGFENG
+  OTHER
+}
+
+enum UnitType {
+  PMVV
+  DT
+  LV
+  CT
+  WT
+  GENSET
+  OTHER
+}
+
+enum UnitStatus {
+  ACTIVE
+  BREAKDOWN
+}
