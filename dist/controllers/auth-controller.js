@@ -142,32 +142,42 @@ class AuthController {
     }
     async login(req, res) {
         try {
-            const { email, password } = req.body;
+            const { emailOrNrp, password } = req.body;
             // Validation
-            if (!email || !password) {
+            if (!emailOrNrp || !password) {
                 res.status(400).json({
                     success: false,
-                    message: "Email and password are required",
+                    message: "Email/NRP and password are required",
                 });
                 return;
             }
-            // Validate email format
+            // Determine if input is email or NRP
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(email)) {
+            const isEmail = emailRegex.test(emailOrNrp);
+            const isNrp = !isNaN(Number(emailOrNrp)) && Number(emailOrNrp) > 0;
+            if (!isEmail && !isNrp) {
                 res.status(400).json({
                     success: false,
-                    message: "Invalid email format",
+                    message: "Please enter a valid email address or NRP",
                 });
                 return;
             }
-            // Find user by email
-            const user = await database_1.prisma.user.findUnique({
-                where: { email },
-            });
+            // Find user by email or NRP
+            let user;
+            if (isEmail) {
+                user = await database_1.prisma.user.findUnique({
+                    where: { email: emailOrNrp },
+                });
+            }
+            else {
+                user = await database_1.prisma.user.findFirst({
+                    where: { nrp: Number(emailOrNrp) },
+                });
+            }
             if (!user) {
                 res.status(401).json({
                     success: false,
-                    message: "Invalid email or password",
+                    message: "Invalid email/NRP or password",
                 });
                 return;
             }
@@ -176,7 +186,7 @@ class AuthController {
             if (!isPasswordValid) {
                 res.status(401).json({
                     success: false,
-                    message: "Invalid email or password",
+                    message: "Invalid email/NRP or password",
                 });
                 return;
             }
