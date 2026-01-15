@@ -93,6 +93,50 @@ export class PlannerRouter {
       },
       (req, res) => this.plannerController.getMechanics(req, res)
     );
+
+    // Get breakdown units report - accessible by PLANNER, ADMIN, SUPERADMIN
+    this.router.get(
+      "/unit-report/breakdown",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "PLANNER" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
+          });
+        }
+      },
+      (req, res) => this.plannerController.getBreakdownUnitsReport(req, res)
+    );
+
+    // Get mechanics report - accessible by PLANNER, ADMIN, SUPERADMIN
+    this.router.get(
+      "/mechanics-report",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "PLANNER" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
+          });
+        }
+      },
+      (req, res) => this.plannerController.getMechanicsReport(req, res)
+    );
   }
 
   public getRouter(): Router {

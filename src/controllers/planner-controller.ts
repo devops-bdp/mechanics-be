@@ -9,9 +9,14 @@ export class PlannerController {
   }
 
   // Helper function to format duration (only show relevant parts)
-  private formatDuration(hours: number, minutes: number, seconds: number, isRunning: boolean = false): string {
+  private formatDuration(
+    hours: number,
+    minutes: number,
+    seconds: number,
+    isRunning: boolean = false
+  ): string {
     const parts: string[] = [];
-    
+
     if (hours > 0) {
       parts.push(`${hours}h`);
     }
@@ -21,7 +26,7 @@ export class PlannerController {
     if (seconds > 0 || parts.length === 0) {
       parts.push(`${seconds}s`);
     }
-    
+
     const formatted = parts.join(" ");
     return isRunning ? `${formatted} (running)` : formatted;
   }
@@ -180,7 +185,9 @@ export class PlannerController {
       if (!validActivityNames.includes(activityName)) {
         res.status(400).json({
           success: false,
-          message: `Invalid activityName. Valid names are: ${validActivityNames.join(", ")}`,
+          message: `Invalid activityName. Valid names are: ${validActivityNames.join(
+            ", "
+          )}`,
         });
         return;
       }
@@ -197,7 +204,9 @@ export class PlannerController {
       if (activityStatus && !validStatuses.includes(activityStatus)) {
         res.status(400).json({
           success: false,
-          message: `Invalid activityStatus. Valid statuses are: ${validStatuses.join(", ")}`,
+          message: `Invalid activityStatus. Valid statuses are: ${validStatuses.join(
+            ", "
+          )}`,
         });
         return;
       }
@@ -222,6 +231,15 @@ export class PlannerController {
         res.status(404).json({
           success: false,
           message: "Unit not found",
+        });
+        return;
+      }
+
+      // Check if unit status is BREAKDOWN or INACTIVE (planner can only create activity for BREAKDOWN or INACTIVE units)
+      if (unit.unitStatus !== "BREAKDOWN" && unit.unitStatus !== "INACTIVE") {
+        res.status(400).json({
+          success: false,
+          message: `Cannot create activity for unit with status ${unit.unitStatus}. Unit must be in BREAKDOWN or INACTIVE status. Please change the unit status first.`,
         });
         return;
       }
@@ -327,7 +345,9 @@ export class PlannerController {
         where.activityStatus = statusValue;
       }
       if (activityName) {
-        const nameValue = Array.isArray(activityName) ? activityName[0] : activityName;
+        const nameValue = Array.isArray(activityName)
+          ? activityName[0]
+          : activityName;
         where.activityName = nameValue;
       }
       if (unitId) {
@@ -335,7 +355,9 @@ export class PlannerController {
         where.unitId = unitValue;
       }
       if (mechanicId) {
-        const mechanicValue = Array.isArray(mechanicId) ? mechanicId[0] : mechanicId;
+        const mechanicValue = Array.isArray(mechanicId)
+          ? mechanicId[0]
+          : mechanicId;
         where.mechanics = {
           some: {
             mechanicId: mechanicValue,
@@ -443,7 +465,12 @@ export class PlannerController {
               const hours = Math.floor(durationSeconds / 3600);
               const minutes = Math.floor((durationSeconds % 3600) / 60);
               const seconds = durationSeconds % 60;
-              durationFormatted = this.formatDuration(hours, minutes, seconds, true);
+              durationFormatted = this.formatDuration(
+                hours,
+                minutes,
+                seconds,
+                true
+              );
               isActive = true;
             }
 
@@ -459,17 +486,18 @@ export class PlannerController {
           });
 
           // Calculate total work time for this mechanic
-          const totalTaskTimeSeconds = tasksWithDuration.reduce(
-            (sum, task) => {
-              // Calculate seconds from durationMinutes
-              return sum + (task.durationMinutes * 60);
-            },
-            0
-          );
+          const totalTaskTimeSeconds = tasksWithDuration.reduce((sum, task) => {
+            // Calculate seconds from durationMinutes
+            return sum + task.durationMinutes * 60;
+          }, 0);
           const totalHours = Math.floor(totalTaskTimeSeconds / 3600);
           const totalMinutes = Math.floor((totalTaskTimeSeconds % 3600) / 60);
           const totalSeconds = totalTaskTimeSeconds % 60;
-          const totalTimeFormatted = this.formatDuration(totalHours, totalMinutes, totalSeconds);
+          const totalTimeFormatted = this.formatDuration(
+            totalHours,
+            totalMinutes,
+            totalSeconds
+          );
           const totalTaskTimeMinutes = Math.floor(totalTaskTimeSeconds / 60);
 
           return {
@@ -585,7 +613,12 @@ export class PlannerController {
             const hours = Math.floor(durationSeconds / 3600);
             const minutes = Math.floor((durationSeconds % 3600) / 60);
             const seconds = durationSeconds % 60;
-            durationFormatted = this.formatDuration(hours, minutes, seconds, true);
+            durationFormatted = this.formatDuration(
+              hours,
+              minutes,
+              seconds,
+              true
+            );
             isActive = true;
           }
 
@@ -601,17 +634,18 @@ export class PlannerController {
         });
 
         // Calculate total work time for this mechanic
-        const totalTaskTimeSeconds = tasksWithDuration.reduce(
-          (sum, task) => {
-            // Calculate seconds from durationMinutes
-            return sum + (task.durationMinutes * 60);
-          },
-          0
-        );
+        const totalTaskTimeSeconds = tasksWithDuration.reduce((sum, task) => {
+          // Calculate seconds from durationMinutes
+          return sum + task.durationMinutes * 60;
+        }, 0);
         const totalHours = Math.floor(totalTaskTimeSeconds / 3600);
         const totalMinutes = Math.floor((totalTaskTimeSeconds % 3600) / 60);
         const totalSeconds = totalTaskTimeSeconds % 60;
-        const totalTimeFormatted = this.formatDuration(totalHours, totalMinutes, totalSeconds);
+        const totalTimeFormatted = this.formatDuration(
+          totalHours,
+          totalMinutes,
+          totalSeconds
+        );
         const totalTaskTimeMinutes = Math.floor(totalTaskTimeSeconds / 60);
 
         return {
@@ -700,7 +734,9 @@ export class PlannerController {
         if (!validActivityNames.includes(activityName)) {
           res.status(400).json({
             success: false,
-            message: `Invalid activityName. Valid names are: ${validActivityNames.join(", ")}`,
+            message: `Invalid activityName. Valid names are: ${validActivityNames.join(
+              ", "
+            )}`,
           });
           return;
         }
@@ -719,7 +755,9 @@ export class PlannerController {
         if (!validStatuses.includes(activityStatus)) {
           res.status(400).json({
             success: false,
-            message: `Invalid activityStatus. Valid statuses are: ${validStatuses.join(", ")}`,
+            message: `Invalid activityStatus. Valid statuses are: ${validStatuses.join(
+              ", "
+            )}`,
           });
           return;
         }
@@ -758,8 +796,10 @@ export class PlannerController {
       if (unitId !== undefined) updateData.unitId = unitId;
       if (description !== undefined) updateData.description = description;
       if (remarks !== undefined) updateData.remarks = remarks;
-      if (activityStatus !== undefined) updateData.activityStatus = activityStatus;
-      if (estimatedStart !== undefined) updateData.estimatedStart = new Date(estimatedStart);
+      if (activityStatus !== undefined)
+        updateData.activityStatus = activityStatus;
+      if (estimatedStart !== undefined)
+        updateData.estimatedStart = new Date(estimatedStart);
       updateData.updatedBy = userId;
 
       // Check if there's anything to update
@@ -857,5 +897,402 @@ export class PlannerController {
       });
     }
   }
-}
 
+  // Get unit activities report - shows all units with their associated activities (regardless of unit status)
+  async getBreakdownUnitsReport(req: Request, res: Response): Promise<void> {
+    try {
+      // Get all units that have activities (regardless of unit status)
+      const unitsWithActivities = await this.prisma.unit.findMany({
+        where: {
+          activities: {
+            some: {}, // At least one activity exists
+          },
+        },
+        include: {
+          activities: {
+            select: {
+              id: true,
+              activityName: true,
+              activityStatus: true,
+              estimatedStart: true,
+              createdAt: true,
+              updatedAt: true,
+              description: true,
+              remarks: true,
+              mechanics: {
+                select: {
+                  id: true,
+                  status: true,
+                  stoppedAt: true,
+                  updatedAt: true,
+                  mechanic: {
+                    select: {
+                      id: true,
+                      firstName: true,
+                      lastName: true,
+                      nrp: true,
+                      email: true,
+                    },
+                  },
+                  tasks: {
+                    select: {
+                      id: true,
+                      startedAt: true,
+                      stoppedAt: true,
+                    },
+                  },
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+          },
+        },
+        orderBy: {
+          unitCode: "asc",
+        },
+      });
+
+      // Format the response - only include units that have activities
+      const report = unitsWithActivities
+        .filter((unit) => unit.activities.length > 0)
+        .map((unit) => ({
+          id: unit.id,
+          unitCode: unit.unitCode,
+          unitType: unit.unitType,
+          unitBrand: unit.unitBrand,
+          unitDescription: unit.unitDescription,
+          unitImage: unit.unitImage,
+          unitStatus: unit.unitStatus,
+          createdAt: unit.createdAt,
+          updatedAt: unit.updatedAt,
+          activities: unit.activities.map((activity) => {
+            // Calculate total time per mechanic and average
+            const mechanicTimes: number[] = [];
+            let completedOn: Date | null = null;
+
+            activity.mechanics.forEach((mechanic) => {
+              // Calculate total time for this mechanic from all tasks
+              let mechanicTotalSeconds = 0;
+
+              mechanic.tasks.forEach((task) => {
+                if (task.startedAt && task.stoppedAt) {
+                  mechanicTotalSeconds += Math.floor(
+                    (task.stoppedAt.getTime() - task.startedAt.getTime()) / 1000
+                  );
+                } else if (task.startedAt && !task.stoppedAt) {
+                  // Task in progress - calculate current duration
+                  const now = new Date();
+                  mechanicTotalSeconds += Math.floor(
+                    (now.getTime() - task.startedAt.getTime()) / 1000
+                  );
+                }
+              });
+
+              if (mechanicTotalSeconds > 0) {
+                mechanicTimes.push(mechanicTotalSeconds);
+              }
+
+              // Get completed date - use stoppedAt if available, otherwise use updatedAt if status is COMPLETED
+              if (mechanic.status === "COMPLETED") {
+                const mechanicCompletedDate =
+                  mechanic.stoppedAt || mechanic.updatedAt;
+                if (mechanicCompletedDate) {
+                  if (
+                    !completedOn ||
+                    mechanicCompletedDate.getTime() > completedOn.getTime()
+                  ) {
+                    completedOn = mechanicCompletedDate;
+                  }
+                }
+              }
+            });
+
+            // Calculate average time in seconds
+            const avgTotalSeconds =
+              mechanicTimes.length > 0
+                ? mechanicTimes.reduce((sum, time) => sum + time, 0) /
+                  mechanicTimes.length
+                : 0;
+
+            const avgHours = Math.floor(avgTotalSeconds / 3600);
+            const avgMinutes = Math.floor((avgTotalSeconds % 3600) / 60);
+            const avgSeconds = Math.floor(avgTotalSeconds % 60);
+            const avgTimeFormatted = this.formatDuration(
+              avgHours,
+              avgMinutes,
+              avgSeconds
+            );
+
+            return {
+              id: activity.id,
+              activityName: activity.activityName,
+              activityStatus: activity.activityStatus,
+              estimatedStart: activity.estimatedStart,
+              createdAt: activity.createdAt,
+              updatedAt: activity.updatedAt,
+              description: activity.description,
+              remarks: activity.remarks,
+              completedOn: completedOn,
+              totalActivityTimeSeconds: Math.floor(avgTotalSeconds),
+              totalActivityTimeFormatted: avgTimeFormatted,
+              assignedMechanics: activity.mechanics.map((am) => ({
+                id: am.mechanic.id,
+                firstName: am.mechanic.firstName,
+                lastName: am.mechanic.lastName,
+                nrp: am.mechanic.nrp,
+                email: am.mechanic.email,
+                status: am.status,
+              })),
+            };
+          }),
+        }));
+
+      res.status(200).json({
+        success: true,
+        data: report,
+        total: report.length,
+      });
+    } catch (error: any) {
+      console.error("Error fetching unit activities report:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch unit activities report",
+        error: error.message,
+      });
+    }
+  }
+
+  // Get mechanics report - shows mechanics with their activities, tasks, and time spent
+  async getMechanicsReport(req: Request, res: Response): Promise<void> {
+    try {
+      const { search } = req.query;
+
+      // Get all mechanics (users with MEKANIK position)
+      // If search is provided, filter mechanics by name or NRP
+      const mechanicWhere: any = {
+        posisi: "MEKANIK",
+      };
+
+      if (search) {
+        const searchValue = Array.isArray(search) ? search[0] : search;
+        if (
+          searchValue &&
+          typeof searchValue === "string" &&
+          searchValue.trim() !== ""
+        ) {
+          mechanicWhere.OR = [
+            {
+              firstName: {
+                contains: searchValue,
+                mode: "insensitive",
+              },
+            },
+            {
+              lastName: {
+                contains: searchValue,
+                mode: "insensitive",
+              },
+            },
+            {
+              nrp: {
+                equals: parseInt(searchValue) || -1,
+              },
+            },
+          ];
+        }
+      }
+
+      const mechanics = await this.prisma.user.findMany({
+        where: mechanicWhere,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          nrp: true,
+          email: true,
+        },
+        orderBy: {
+          firstName: "asc",
+        },
+      });
+
+      // Build where clause for activity assignments
+      const assignmentWhere: any = {
+        mechanicId: {
+          in: mechanics.map((m) => m.id),
+        },
+      };
+
+      // Get all activity assignments for these mechanics with tasks
+      const activityAssignments = await this.prisma.activityMechanic.findMany({
+        where: assignmentWhere,
+        include: {
+          activity: {
+            select: {
+              id: true,
+              activityName: true,
+              unit: {
+                select: {
+                  id: true,
+                  unitCode: true,
+                  unitType: true,
+                  unitBrand: true,
+                },
+              },
+            },
+          },
+          tasks: {
+            orderBy: {
+              order: "asc",
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
+
+      // Additional filtering for search (unit code, activity name)
+      let filteredAssignments = activityAssignments;
+      if (search) {
+        const searchValueRaw = Array.isArray(search) ? search[0] : search;
+        const searchValue =
+          typeof searchValueRaw === "string"
+            ? searchValueRaw.toLowerCase()
+            : String(searchValueRaw).toLowerCase();
+        filteredAssignments = activityAssignments.filter((assignment) => {
+          const unitCode = assignment.activity.unit.unitCode.toLowerCase();
+          const activityName = assignment.activity.activityName
+            .toLowerCase()
+            .replace(/_/g, " ");
+          return (
+            unitCode.includes(searchValue) || activityName.includes(searchValue)
+          );
+        });
+      }
+
+      // Format the response - group by mechanic
+      const report = mechanics.map((mechanic) => {
+        const assignments = filteredAssignments.filter(
+          (aa) => aa.mechanicId === mechanic.id
+        );
+
+        const activities = assignments.map((assignment) => {
+          // Calculate time for each task
+          const tasksWithTime = assignment.tasks.map((task) => {
+            let durationSeconds = 0;
+            let isActive = false;
+
+            if (task.startedAt && task.stoppedAt) {
+              // Task completed
+              durationSeconds = Math.floor(
+                (task.stoppedAt.getTime() - task.startedAt.getTime()) / 1000
+              );
+            } else if (task.startedAt && !task.stoppedAt) {
+              // Task in progress
+              const now = new Date();
+              durationSeconds = Math.floor(
+                (now.getTime() - task.startedAt.getTime()) / 1000
+              );
+              isActive = true;
+            }
+
+            const hours = Math.floor(durationSeconds / 3600);
+            const minutes = Math.floor((durationSeconds % 3600) / 60);
+            const seconds = durationSeconds % 60;
+            const durationFormatted = this.formatDuration(
+              hours,
+              minutes,
+              seconds,
+              isActive
+            );
+
+            return {
+              id: task.id,
+              taskName: task.taskName,
+              order: task.order,
+              startedAt: task.startedAt,
+              stoppedAt: task.stoppedAt,
+              durationSeconds,
+              durationFormatted,
+              isActive,
+            };
+          });
+
+          // Calculate total time for this activity (sum of all tasks)
+          const totalActivitySeconds = tasksWithTime.reduce(
+            (sum, task) => sum + task.durationSeconds,
+            0
+          );
+          const totalHours = Math.floor(totalActivitySeconds / 3600);
+          const totalMinutes = Math.floor((totalActivitySeconds % 3600) / 60);
+          const totalSeconds = totalActivitySeconds % 60;
+          const totalActivityTimeFormatted = this.formatDuration(
+            totalHours,
+            totalMinutes,
+            totalSeconds
+          );
+
+          return {
+            id: assignment.id,
+            activityId: assignment.activity.id,
+            activityName: assignment.activity.activityName,
+            unitCode: assignment.activity.unit.unitCode,
+            unitType: assignment.activity.unit.unitType,
+            unitBrand: assignment.activity.unit.unitBrand,
+            status: assignment.status,
+            startedAt: assignment.startedAt,
+            stoppedAt: assignment.stoppedAt,
+            createdAt: assignment.createdAt,
+            tasks: tasksWithTime,
+            totalActivitySeconds,
+            totalActivityTimeFormatted,
+          };
+        });
+
+        // Calculate total time across all activities for this mechanic
+        const totalMechanicSeconds = activities.reduce(
+          (sum, activity) => sum + activity.totalActivitySeconds,
+          0
+        );
+        const totalMechanicHours = Math.floor(totalMechanicSeconds / 3600);
+        const totalMechanicMinutes = Math.floor(
+          (totalMechanicSeconds % 3600) / 60
+        );
+        const totalMechanicSecs = totalMechanicSeconds % 60;
+        const totalMechanicTimeFormatted = this.formatDuration(
+          totalMechanicHours,
+          totalMechanicMinutes,
+          totalMechanicSecs
+        );
+
+        return {
+          id: mechanic.id,
+          firstName: mechanic.firstName,
+          lastName: mechanic.lastName,
+          nrp: mechanic.nrp,
+          email: mechanic.email,
+          activities,
+          totalActivities: activities.length,
+          totalMechanicSeconds,
+          totalMechanicTimeFormatted,
+        };
+      });
+
+      res.status(200).json({
+        success: true,
+        data: report,
+        total: report.length,
+      });
+    } catch (error: any) {
+      console.error("Error fetching mechanics report:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch mechanics report",
+        error: error.message,
+      });
+    }
+  }
+}

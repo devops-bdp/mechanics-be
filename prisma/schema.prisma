@@ -211,4 +211,5 @@ enum UnitType {
 enum UnitStatus {
   ACTIVE
   BREAKDOWN
+  INACTIVE
 }

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { UnitController } from "../controllers/unit-controllers";
-import { authenticate, authorize } from "../middleware/auth.middleware";
+import { authenticate, authorize, authorizePosisi } from "../middleware/auth.middleware";
 import { prisma } from "../lib/database";
 
 export class UnitRouter {
@@ -22,16 +22,61 @@ export class UnitRouter {
       this.unitController.getById(req, res)
     );
 
-    // Create unit - protected route, requires authentication
-    this.router.post("/", authenticate, (req, res) =>
-      this.unitController.create(req, res)
+    // Create unit - protected route, allows PLANNER (posisi), ADMIN, and SUPERADMIN (role)
+    this.router.post(
+      "/",
+      authenticate,
+      (req, res, next) => {
+        if (!req.user) {
+          res.status(401).json({
+            success: false,
+            message: "Authentication required",
+          });
+          return;
+        }
+        // Allow if user has ADMIN or SUPERADMIN role, OR has PLANNER posisi
+        if (
+          req.user.role === "ADMIN" ||
+          req.user.role === "SUPERADMIN" ||
+          req.user.posisi === "PLANNER"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions. Only PLANNER, ADMIN, and SUPERADMIN can create units.",
+          });
+        }
+      },
+      (req, res) => this.unitController.create(req, res)
     );
 
-    // Update unit - protected route, only ADMIN and SUPERADMIN can access
+    // Update unit - protected route, allows PLANNER (posisi), ADMIN, and SUPERADMIN (role)
     this.router.put(
       "/:id",
       authenticate,
-      authorize("ADMIN", "SUPERADMIN"),
+      (req, res, next) => {
+        if (!req.user) {
+          res.status(401).json({
+            success: false,
+            message: "Authentication required",
+          });
+          return;
+        }
+        // Allow if user has ADMIN or SUPERADMIN role, OR has PLANNER posisi
+        if (
+          req.user.role === "ADMIN" ||
+          req.user.role === "SUPERADMIN" ||
+          req.user.posisi === "PLANNER"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions. Only PLANNER, ADMIN, and SUPERADMIN can update units.",
+          });
+        }
+      },
       (req, res) => this.unitController.update(req, res)
     );
 
