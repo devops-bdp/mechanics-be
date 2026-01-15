@@ -1295,4 +1295,307 @@ export class PlannerController {
       });
     }
   }
+
+  // Get activity analytics - shows activity distribution by status and type
+  async getActivityAnalytics(req: Request, res: Response): Promise<void> {
+    try {
+      // Get activity distribution by status
+      const activitiesByStatus = await this.prisma.mechanicActivity.groupBy({
+        by: ["activityStatus"],
+        _count: {
+          id: true,
+        },
+      });
+
+      // Get activity distribution by activity name
+      const activitiesByType = await this.prisma.mechanicActivity.groupBy({
+        by: ["activityName"],
+        _count: {
+          id: true,
+        },
+      });
+
+      // Get activities created in last 6 months (monthly)
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+      const activities = await this.prisma.mechanicActivity.findMany({
+        where: {
+          createdAt: {
+            gte: sixMonthsAgo,
+          },
+        },
+        select: {
+          createdAt: true,
+          activityStatus: true,
+        },
+      });
+
+      // Group by month
+      const monthlyData: Record<
+        string,
+        { month: string; count: number; completed: number }
+      > = {};
+      activities.forEach((activity) => {
+        const date = new Date(activity.createdAt);
+        const monthKey = `${date.getFullYear()}-${String(
+          date.getMonth() + 1
+        ).padStart(2, "0")}`;
+        const monthName = date.toLocaleDateString("en-US", {
+          month: "short",
+          year: "numeric",
+        });
+
+        if (!monthlyData[monthKey]) {
+          monthlyData[monthKey] = {
+            month: monthName,
+            count: 0,
+            completed: 0,
+          };
+        }
+        monthlyData[monthKey].count++;
+        if (activity.activityStatus === "COMPLETED") {
+          monthlyData[monthKey].completed++;
+        }
+      });
+
+      const monthlyTrend = Object.values(monthlyData).sort((a, b) => {
+        const aDate = new Date(a.month);
+        const bDate = new Date(b.month);
+        return aDate.getTime() - bDate.getTime();
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          byStatus: activitiesByStatus.map((item) => ({
+            status: item.activityStatus,
+            count: item._count.id,
+          })),
+          byType: activitiesByType.map((item) => ({
+            activityName: item.activityName,
+            count: item._count.id,
+          })),
+          monthlyTrend,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching activity analytics:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch activity analytics",
+        error: error.message,
+      });
+    }
+  }
+
+  // Get unit analytics - shows unit distribution by status and type
+  async getUnitAnalytics(req: Request, res: Response): Promise<void> {
+    try {
+      // Get unit distribution by status
+      const unitsByStatus = await this.prisma.unit.groupBy({
+        by: ["unitStatus"],
+        _count: {
+          id: true,
+        },
+      });
+
+      // Get unit distribution by type
+      const unitsByType = await this.prisma.unit.groupBy({
+        by: ["unitType"],
+        _count: {
+          id: true,
+        },
+      });
+
+      // Get unit distribution by brand
+      const unitsByBrand = await this.prisma.unit.groupBy({
+        by: ["unitBrand"],
+        _count: {
+          id: true,
+        },
+      });
+
+      // Get units with activity count
+      const unitsWithActivities = await this.prisma.unit.findMany({
+        include: {
+          _count: {
+            select: {
+              activities: true,
+            },
+          },
+        },
+      });
+
+      // Group by activity count ranges
+      const activityCountRanges = {
+        "0": 0,
+        "1-5": 0,
+        "6-10": 0,
+        "11-20": 0,
+        "21+": 0,
+      };
+
+      unitsWithActivities.forEach((unit) => {
+        const count = unit._count.activities;
+        if (count === 0) {
+          activityCountRanges["0"]++;
+        } else if (count >= 1 && count <= 5) {
+          activityCountRanges["1-5"]++;
+        } else if (count >= 6 && count <= 10) {
+          activityCountRanges["6-10"]++;
+        } else if (count >= 11 && count <= 20) {
+          activityCountRanges["11-20"]++;
+        } else {
+          activityCountRanges["21+"]++;
+        }
+      });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          byStatus: unitsByStatus.map((item) => ({
+            status: item.unitStatus,
+            count: item._count.id,
+          })),
+          byType: unitsByType.map((item) => ({
+            unitType: item.unitType,
+            count: item._count.id,
+          })),
+          byBrand: unitsByBrand.map((item) => ({
+            unitBrand: item.unitBrand,
+            count: item._count.id,
+          })),
+          byActivityCount: Object.entries(activityCountRanges).map(
+            ([range, count]) => ({
+              range,
+              count,
+            })
+          ),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching unit analytics:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch unit analytics",
+        error: error.message,
+      });
+    }
+  }
+
+  // Get mechanics analytics - shows top mechanics by activity count and work time
+  async getMechanicsAnalytics(req: Request, res: Response): Promise<void> {
+    try {
+      // Get all mechanics with their activity assignments
+      const mechanics = await this.prisma.user.findMany({
+        where: {
+          posisi: "MEKANIK",
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          nrp: true,
+        },
+      });
+
+      // Get all activity assignments for these mechanics with tasks
+      const activityAssignments = await this.prisma.activityMechanic.findMany({
+        where: {
+          mechanicId: {
+            in: mechanics.map((m) => m.id),
+          },
+        },
+        include: {
+          tasks: {
+            select: {
+              startedAt: true,
+              stoppedAt: true,
+            },
+          },
+        },
+      });
+
+      // Calculate statistics for each mechanic
+      const mechanicStats = mechanics.map((mechanic) => {
+        const assignments = activityAssignments.filter(
+          (aa) => aa.mechanicId === mechanic.id
+        );
+
+        // Count total activities
+        const totalActivities = assignments.length;
+
+        // Calculate total work time from all tasks
+        let totalWorkTimeSeconds = 0;
+        assignments.forEach((assignment) => {
+          assignment.tasks.forEach((task) => {
+            if (task.startedAt && task.stoppedAt) {
+              const duration = Math.floor(
+                (task.stoppedAt.getTime() - task.startedAt.getTime()) / 1000
+              );
+              totalWorkTimeSeconds += duration;
+            } else if (task.startedAt && !task.stoppedAt) {
+              // Task is currently active
+              const duration = Math.floor(
+                (new Date().getTime() - task.startedAt.getTime()) / 1000
+              );
+              totalWorkTimeSeconds += duration;
+            }
+          });
+        });
+
+        const hours = Math.floor(totalWorkTimeSeconds / 3600);
+        const minutes = Math.floor((totalWorkTimeSeconds % 3600) / 60);
+        const seconds = totalWorkTimeSeconds % 60;
+        const totalWorkTimeFormatted = this.formatDuration(
+          hours,
+          minutes,
+          seconds
+        );
+
+        return {
+          id: mechanic.id,
+          name: `${mechanic.firstName} ${mechanic.lastName}`,
+          nrp: mechanic.nrp,
+          totalActivities,
+          totalWorkTimeSeconds,
+          totalWorkTimeFormatted,
+        };
+      });
+
+      // Sort by activity count (descending) - top 10
+      const topByActivities = mechanicStats
+        .sort((a, b) => b.totalActivities - a.totalActivities)
+        .slice(0, 10)
+        .map((mechanic, index) => ({
+          ...mechanic,
+          rank: index + 1,
+        }));
+
+      // Sort by work time (descending) - top 10
+      const topByWorkTime = mechanicStats
+        .sort((a, b) => b.totalWorkTimeSeconds - a.totalWorkTimeSeconds)
+        .slice(0, 10)
+        .map((mechanic, index) => ({
+          ...mechanic,
+          rank: index + 1,
+        }));
+
+      res.status(200).json({
+        success: true,
+        data: {
+          topByActivities,
+          topByWorkTime,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching mechanics analytics:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch mechanics analytics",
+        error: error.message,
+      });
+    }
+  }
 }

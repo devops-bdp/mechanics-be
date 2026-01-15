@@ -137,6 +137,72 @@ export class PlannerRouter {
       },
       (req, res) => this.plannerController.getMechanicsReport(req, res)
     );
+
+    // Get activity analytics - accessible by PLANNER, ADMIN, SUPERADMIN
+    this.router.get(
+      "/analytics/activities",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "PLANNER" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
+          });
+        }
+      },
+      (req, res) => this.plannerController.getActivityAnalytics(req, res)
+    );
+
+    // Get unit analytics - accessible by PLANNER, ADMIN, SUPERADMIN
+    this.router.get(
+      "/analytics/units",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "PLANNER" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
+          });
+        }
+      },
+      (req, res) => this.plannerController.getUnitAnalytics(req, res)
+    );
+
+    // Get mechanics analytics - accessible by PLANNER, ADMIN, SUPERADMIN
+    this.router.get(
+      "/analytics/mechanics",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "PLANNER" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
+          });
+        }
+      },
+      (req, res) => this.plannerController.getMechanicsAnalytics(req, res)
+    );
   }
 
   public getRouter(): Router {
