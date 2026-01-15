@@ -90,6 +90,25 @@ export class MechanicsController {
         { taskName: "FINAL_CHECK", order: 5 },
         { taskName: "REPORTING", order: 6 },
       ],
+      SCHEDULED_MAINTENANCE: [
+        { taskName: "PREPARING_PART", order: 1 },
+        { taskName: "PREPARING_TOOLS", order: 2 },
+        { taskName: "WASHING_UNIT", order: 3 },
+        { taskName: "PRE_INSPECTION", order: 4 },
+        { taskName: "ON_PROCESS", order: 5 },
+        { taskName: "FINAL_CHECK", order: 6 },
+        { taskName: "REPORTING", order: 7 },
+        { taskName: "HOUSEKEEPING", order: 8 },
+      ],
+      UNSCHEDULED_MAINTENANCE: [
+        { taskName: "PREPARING_PART", order: 1 },
+        { taskName: "PREPARING_TOOLS", order: 2 },
+        { taskName: "TRAVELING", order: 3 },
+        { taskName: "ON_PROCESS", order: 4 },
+        { taskName: "FINAL_CHECK", order: 5 },
+        { taskName: "REPORTING", order: 6 },
+        { taskName: "HOUSEKEEPING", order: 7 },
+      ],
     };
 
     return sequences[activityName] || [];
@@ -108,6 +127,8 @@ export class MechanicsController {
       "RETORQUE_TYRE",
       "REPAIR_TYRE",
       "TROUBLESHOOTING_TYRE",
+      "SCHEDULED_MAINTENANCE",
+      "UNSCHEDULED_MAINTENANCE",
     ];
     return supportedActivities.includes(activityName);
   }
@@ -829,34 +850,68 @@ export class MechanicsController {
         startedAt: startTime,
       };
 
-      // Handle first task if activity supports tasks
+      // Handle tasks if activity supports tasks
       if (supportsTasks) {
         const taskSequence = this.getTaskSequence(activityName);
         if (taskSequence.length > 0) {
-          const firstTask = taskSequence[0];
+          // Check if any tasks exist
+          if (assignment.tasks.length === 0) {
+            // No tasks exist, create ALL tasks from sequence
+            // First task will be started, others will be created but not started
+            const tasksToCreate = taskSequence.map((task, index) => ({
+              taskName: task.taskName as any,
+              order: task.order,
+              startedAt: index === 0 ? startTime : null, // Only first task is started
+            }));
 
-          // Check if first task already exists (created by planner)
-          const existingFirstTask = assignment.tasks.find(
-            (t) => t.taskName === firstTask.taskName
-          );
-
-          if (existingFirstTask) {
-            // Task already exists, just update it to start
-            await this.prisma.task.update({
-              where: { id: existingFirstTask.id },
-              data: {
-                startedAt: startTime,
-              },
-            });
-          } else {
-            // Task doesn't exist (backward compatibility), create it
             updateData.tasks = {
-              create: {
-                taskName: firstTask.taskName,
-                order: firstTask.order,
-                startedAt: startTime,
-              },
+              create: tasksToCreate,
             };
+          } else {
+            // Some tasks exist, find and start the first task
+            const firstTask = taskSequence[0];
+            const existingFirstTask = assignment.tasks.find(
+              (t) => t.taskName === firstTask.taskName
+            );
+
+            if (existingFirstTask) {
+              // First task exists, start it if not already started
+              if (!existingFirstTask.startedAt) {
+                await this.prisma.task.update({
+                  where: { id: existingFirstTask.id },
+                  data: {
+                    startedAt: startTime,
+                  },
+                });
+              }
+            } else {
+              // First task doesn't exist but other tasks do (unusual case)
+              // Create and start the first task
+              await this.prisma.task.create({
+                data: {
+                  activityMechanicId: assignment.id,
+                  taskName: firstTask.taskName as any,
+                  order: firstTask.order,
+                  startedAt: startTime,
+                },
+              });
+            }
+
+            // Create any missing tasks from the sequence
+            const existingTaskNames = assignment.tasks.map((t) => t.taskName);
+            const missingTasks = taskSequence.filter(
+              (task) => !existingTaskNames.includes(task.taskName as any)
+            );
+
+            if (missingTasks.length > 0) {
+              await this.prisma.task.createMany({
+                data: missingTasks.map((task) => ({
+                  activityMechanicId: assignment.id,
+                  taskName: task.taskName as any,
+                  order: task.order,
+                })),
+              });
+            }
           }
         }
       }
