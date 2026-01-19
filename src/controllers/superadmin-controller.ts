@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Role, Posision } from "@prisma/client";
 import bcrypt from "bcrypt";
 
 export class SuperAdminController {
@@ -379,6 +379,238 @@ export class SuperAdminController {
       });
     } catch (error) {
       console.error("Delete user error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error:
+          process.env.NODE_ENV === "development" ? String(error) : undefined,
+      });
+    }
+  }
+
+  async bulkCreateUsers(req: Request, res: Response): Promise<void> {
+    try {
+      const { users } = req.body;
+
+      // Validation
+      if (!users || !Array.isArray(users) || users.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "Users array is required and must not be empty",
+        });
+        return;
+      }
+
+      // Limit bulk create to 100 users at a time
+      if (users.length > 100) {
+        res.status(400).json({
+          success: false,
+          message: "Maximum 100 users can be created at once",
+        });
+        return;
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const validRoles = Object.values(Role);
+      const validPosisi = Object.values(Posision);
+      const saltRounds = 10;
+
+      const results = {
+        successful: [] as any[],
+        failed: [] as any[],
+      };
+
+      // Check for duplicate emails and NRPs in the input
+      const emails = new Set<string>();
+      const nrps = new Set<number>();
+
+      for (let i = 0; i < users.length; i++) {
+        const user = users[i];
+        const index = i + 1;
+
+        // Validate required fields
+        if (!user.email || !user.password || !user.firstName || !user.lastName || !user.nrp) {
+          results.failed.push({
+            index,
+            email: user.email || "N/A",
+            reason: "Missing required fields: email, password, firstName, lastName, nrp",
+          });
+          continue;
+        }
+
+        // Check for duplicates in input
+        if (emails.has(user.email.toLowerCase())) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: "Duplicate email in the input data",
+          });
+          continue;
+        }
+
+        const nrpNum = parseInt(String(user.nrp));
+        if (isNaN(nrpNum) || nrpNum <= 0) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: "Invalid NRP (must be a positive integer)",
+          });
+          continue;
+        }
+
+        if (nrps.has(nrpNum)) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: "Duplicate NRP in the input data",
+          });
+          continue;
+        }
+
+        // Validate email format
+        if (!emailRegex.test(user.email)) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: "Invalid email format",
+          });
+          continue;
+        }
+
+        // Validate password
+        if (user.password.length < 6) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: "Password must be at least 6 characters long",
+          });
+          continue;
+        }
+
+        // Validate role
+        let role = user.role || Role.USERS;
+        if (typeof role === "string" && role.toUpperCase() === "SUPER_ADMIN") {
+          role = Role.SUPERADMIN;
+        } else if (typeof role === "string") {
+          role = role.toUpperCase() as Role;
+        }
+
+        if (!validRoles.includes(role as Role)) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: `Invalid role. Valid roles are: ${validRoles.join(", ")}`,
+          });
+          continue;
+        }
+
+        // Validate posisi
+        let posisi = user.posisi || Posision.MEKANIK;
+        if (typeof posisi === "string") {
+          posisi = posisi.toUpperCase() as Posision;
+        }
+
+        if (!validPosisi.includes(posisi as Posision)) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: `Invalid posisi. Valid posisi are: ${validPosisi.join(", ")}`,
+          });
+          continue;
+        }
+
+        emails.add(user.email.toLowerCase());
+        nrps.add(nrpNum);
+
+        // Check if user already exists in database
+        const existingUser = await this.prisma.user.findUnique({
+          where: { email: user.email },
+        });
+
+        if (existingUser) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: "User with this email already exists",
+          });
+          continue;
+        }
+
+        // Check if NRP already exists
+        const existingNrp = await this.prisma.user.findFirst({
+          where: { nrp: nrpNum },
+        });
+
+        if (existingNrp) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: "User with this NRP already exists",
+          });
+          continue;
+        }
+
+        // Hash password
+        const hashedPassword = await bcrypt.hash(user.password, saltRounds);
+
+        // Convert phoneNumber to string if provided
+        const phoneNumberStr = user.phoneNumber ? String(user.phoneNumber) : undefined;
+
+        // Create user
+        try {
+          const createdUser = await this.prisma.user.create({
+            data: {
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              nrp: nrpNum,
+              role: role as Role,
+              posisi: posisi as Posision,
+              phoneNumber: phoneNumberStr,
+              avatar: user.avatar || undefined,
+              password: hashedPassword,
+            },
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              nrp: true,
+              role: true,
+              posisi: true,
+              avatar: true,
+              phoneNumber: true,
+              createdAt: true,
+              updatedAt: true,
+              password: false,
+            },
+          });
+
+          results.successful.push(createdUser);
+        } catch (createError: any) {
+          results.failed.push({
+            index,
+            email: user.email,
+            reason: createError.message || "Failed to create user",
+          });
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Bulk create completed. ${results.successful.length} successful, ${results.failed.length} failed.`,
+        data: {
+          successful: results.successful,
+          failed: results.failed,
+          summary: {
+            total: users.length,
+            successful: results.successful.length,
+            failed: results.failed.length,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Bulk create users error:", error);
       res.status(500).json({
         success: false,
         message: "Internal server error",
