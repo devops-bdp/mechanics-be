@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { AuthController } from "../controllers/auth-controller";
 import { authenticate, authorize } from "../middleware/auth.middleware";
+import { uploadProfilePicture } from "../middleware/upload.middleware";
 
 export class AuthRouter {
   private router: Router;
@@ -29,6 +30,14 @@ export class AuthRouter {
     // Update profile - protected route, user can update their own profile
     this.router.put("/profile", authenticate, (req, res) =>
       this.authController.updateProfile(req, res)
+    );
+
+    // Upload profile picture - protected route, user can upload their own profile picture
+    this.router.post(
+      "/profile/picture",
+      authenticate,
+      uploadProfilePicture.single("profilePicture"),
+      (req, res) => this.authController.uploadProfilePicture(req, res)
     );
 
     // Change password - protected route, user can change their own password

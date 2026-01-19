@@ -23,6 +23,9 @@ Setelah project dibuat di Vercel, tambahkan environment variables berikut:
 - `DIRECT_URL` - Direct connection string (optional, untuk connection pooling)
 - `JWT_SECRET` - Secret key untuk JWT token
 - `NODE_ENV` - Set ke "production"
+- `CLOUDINARY_NAME` - Cloudinary cloud name
+- `CLOUDINARY_API_KEY` - Cloudinary API key
+- `CLOUDINARY_API_SECRET` - Cloudinary API secret
 
 ### 4. Deploy ke Vercel
 
@@ -46,6 +49,9 @@ vercel
 vercel env add DATABASE_URL
 vercel env add JWT_SECRET
 vercel env add NODE_ENV
+vercel env add CLOUDINARY_NAME
+vercel env add CLOUDINARY_API_KEY
+vercel env add CLOUDINARY_API_SECRET
 ```
 
 ### 6. Production Deployment

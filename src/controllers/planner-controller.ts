@@ -479,6 +479,7 @@ export class PlannerController {
 
             return {
               ...task,
+              durationSeconds, // Store seconds for accurate calculation
               durationMinutes,
               durationFormatted,
               isActive,
@@ -487,8 +488,8 @@ export class PlannerController {
 
           // Calculate total work time for this mechanic
           const totalTaskTimeSeconds = tasksWithDuration.reduce((sum, task) => {
-            // Calculate seconds from durationMinutes
-            return sum + task.durationMinutes * 60;
+            // Use durationSeconds directly for accurate calculation
+            return sum + (task.durationSeconds || 0);
           }, 0);
           const totalHours = Math.floor(totalTaskTimeSeconds / 3600);
           const totalMinutes = Math.floor((totalTaskTimeSeconds % 3600) / 60);
@@ -627,6 +628,7 @@ export class PlannerController {
 
           return {
             ...task,
+            durationSeconds, // Store seconds for accurate calculation
             durationMinutes,
             durationFormatted,
             isActive,
@@ -635,8 +637,8 @@ export class PlannerController {
 
         // Calculate total work time for this mechanic
         const totalTaskTimeSeconds = tasksWithDuration.reduce((sum, task) => {
-          // Calculate seconds from durationMinutes
-          return sum + task.durationMinutes * 60;
+          // Use durationSeconds directly for accurate calculation
+          return sum + (task.durationSeconds || 0);
         }, 0);
         const totalHours = Math.floor(totalTaskTimeSeconds / 3600);
         const totalMinutes = Math.floor((totalTaskTimeSeconds % 3600) / 60);

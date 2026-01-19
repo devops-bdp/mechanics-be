@@ -728,6 +728,7 @@ export class SupervisorController {
 
           return {
             ...task,
+            durationSeconds, // Store seconds for accurate calculation
             durationMinutes,
             durationFormatted,
             isActive,
@@ -737,8 +738,8 @@ export class SupervisorController {
         // Calculate total work time for this mechanic
         const totalTaskTimeSeconds = tasksWithDuration.reduce(
           (sum, task) => {
-            // Calculate seconds from durationMinutes
-            return sum + (task.durationMinutes * 60);
+            // Use durationSeconds directly for accurate calculation
+            return sum + (task.durationSeconds || 0);
           },
           0
         );
