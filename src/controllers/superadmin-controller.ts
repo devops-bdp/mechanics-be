@@ -388,6 +388,110 @@ export class SuperAdminController {
     }
   }
 
+  async bulkDeleteUsers(req: Request, res: Response): Promise<void> {
+    try {
+      const { userIds } = req.body;
+      const userIdFromToken = req.user?.id;
+
+      // Validation
+      if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "User IDs array is required and must not be empty",
+        });
+        return;
+      }
+
+      // Limit bulk delete to 100 users at a time
+      if (userIds.length > 100) {
+        res.status(400).json({
+          success: false,
+          message: "Maximum 100 users can be deleted at once",
+        });
+        return;
+      }
+
+      // Prevent self-deletion
+      if (userIds.includes(userIdFromToken)) {
+        res.status(400).json({
+          success: false,
+          message: "You cannot delete your own account",
+        });
+        return;
+      }
+
+      const results = {
+        successful: [] as string[],
+        failed: [] as Array<{ userId: string; reason: string }>,
+      };
+
+      // Check which users exist
+      const existingUsers = await this.prisma.user.findMany({
+        where: {
+          id: { in: userIds },
+        },
+        select: {
+          id: true,
+          email: true,
+        },
+      });
+
+      const existingUserIds = new Set(existingUsers.map((u) => u.id));
+      const existingUserMap = new Map(existingUsers.map((u) => [u.id, u.email]));
+
+      // Process deletions
+      for (const userId of userIds) {
+        if (!existingUserIds.has(userId)) {
+          results.failed.push({
+            userId,
+            reason: "User not found",
+          });
+          continue;
+        }
+
+        try {
+          await this.prisma.user.delete({
+            where: { id: userId },
+          });
+          results.successful.push(userId);
+        } catch (error: any) {
+          results.failed.push({
+            userId,
+            reason: error.message || "Failed to delete user",
+          });
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Bulk delete completed. ${results.successful.length} successful, ${results.failed.length} failed.`,
+        data: {
+          successful: results.successful.map((id) => ({
+            id,
+            email: existingUserMap.get(id) || "Unknown",
+          })),
+          failed: results.failed.map((fail) => ({
+            ...fail,
+            email: existingUserMap.get(fail.userId) || "Unknown",
+          })),
+          summary: {
+            total: userIds.length,
+            successful: results.successful.length,
+            failed: results.failed.length,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Bulk delete users error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error:
+          process.env.NODE_ENV === "development" ? String(error) : undefined,
+      });
+    }
+  }
+
   async bulkCreateUsers(req: Request, res: Response): Promise<void> {
     try {
       const { users } = req.body;

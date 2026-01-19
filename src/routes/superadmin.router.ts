@@ -56,6 +56,14 @@ export class SuperAdminRouter {
       (req, res) => this.superAdminController.bulkCreateUsers(req, res)
     );
 
+    // Bulk delete users - only SUPERADMIN can access
+    this.router.post(
+      "/users/bulk-delete",
+      authenticate,
+      authorize("SUPERADMIN"),
+      (req, res) => this.superAdminController.bulkDeleteUsers(req, res)
+    );
+
     // ==================== ACTIVITY MANAGEMENT ====================
 
     // Get all activities - only SUPERADMIN can access
