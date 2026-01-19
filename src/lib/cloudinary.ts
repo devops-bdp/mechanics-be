@@ -1,23 +1,30 @@
 import { v2 as cloudinary } from "cloudinary";
 import { Readable } from "stream";
 
-// Validate Cloudinary environment variables
-const cloudinaryName = process.env.CLOUDINARY_NAME;
-const cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
-const cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
+// Lazy initialization - only configure when needed
+let isConfigured = false;
 
-if (!cloudinaryName || !cloudinaryApiKey || !cloudinaryApiSecret) {
-  throw new Error(
-    "Missing Cloudinary environment variables. Please set CLOUDINARY_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in your environment variables."
-  );
+function ensureCloudinaryConfigured() {
+  if (isConfigured) return;
+
+  const cloudinaryName = process.env.CLOUDINARY_NAME;
+  const cloudinaryApiKey = process.env.CLOUDINARY_API_KEY;
+  const cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET;
+
+  if (!cloudinaryName || !cloudinaryApiKey || !cloudinaryApiSecret) {
+    throw new Error(
+      "Missing Cloudinary environment variables. Please set CLOUDINARY_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in your environment variables."
+    );
+  }
+
+  cloudinary.config({
+    cloud_name: cloudinaryName,
+    api_key: cloudinaryApiKey,
+    api_secret: cloudinaryApiSecret,
+  });
+
+  isConfigured = true;
 }
-
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: cloudinaryName,
-  api_key: cloudinaryApiKey,
-  api_secret: cloudinaryApiSecret,
-});
 
 const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1MB in bytes
 const FOLDER_NAME = "mar_user_profile_picture";
@@ -41,6 +48,9 @@ export async function uploadProfilePicture(
   userId: string
 ): Promise<string> {
   try {
+    // Ensure Cloudinary is configured
+    ensureCloudinaryConfigured();
+
     // Check file size
     const fileSize = fileBuffer.length;
 
@@ -88,6 +98,9 @@ export async function uploadProfilePicture(
  */
 export async function deleteProfilePicture(imageUrl: string): Promise<void> {
   try {
+    // Ensure Cloudinary is configured
+    ensureCloudinaryConfigured();
+
     // Extract public_id from URL using the helper function
     const publicId = extractPublicIdFromUrl(imageUrl);
 
