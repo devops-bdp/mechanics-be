@@ -590,16 +590,33 @@ export class UnitController {
         }
       }
 
-      // Create units in a transaction
+      // Create units in a transaction with increased timeout
+      // Use createMany for better performance, then fetch created units
       const createdUnits = await this.prisma.$transaction(
-        finalUnitsToCreate.map((unit) =>
-          this.prisma.unit.create({
-            data: {
+        async (tx) => {
+          // Use createMany for better performance
+          await tx.unit.createMany({
+            data: finalUnitsToCreate.map((unit) => ({
               ...unit,
               createdBy: userId,
+            })),
+            skipDuplicates: false, // We already checked for duplicates
+          });
+
+          // Fetch the created units to return them
+          return await tx.unit.findMany({
+            where: {
+              unitCode: { in: finalUnitsToCreate.map((u) => u.unitCode) },
             },
-          })
-        )
+            orderBy: {
+              createdAt: 'desc',
+            },
+          });
+        },
+        {
+          maxWait: 10000, // Maximum time to wait for a transaction slot
+          timeout: 30000, // Maximum time the transaction can run (30 seconds)
+        }
       );
 
       createdUnits.forEach((unit) => {
