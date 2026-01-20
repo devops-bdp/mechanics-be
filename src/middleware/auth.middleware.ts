@@ -149,7 +149,45 @@ export const authorize =
   };
 
 /**
- * Middleware to check if user has required posisi
+ * Maps a position to its equivalent access position
+ */
+function getEquivalentPosisi(posisi: string): string {
+  const posisiMap: Record<string, string> = {
+    // ELECTRICIAN, WELDER, TYREMAN have same access as MEKANIK
+    ELECTRICIAN: 'MEKANIK',
+    WELDER: 'MEKANIK',
+    TYREMAN: 'MEKANIK',
+    // GROUP_LEADER_TYRE has same access as GROUP_LEADER_MEKANIK
+    GROUP_LEADER_TYRE: 'GROUP_LEADER_MEKANIK',
+    // SUPERVISOR has same access as PLANNER
+    SUPERVISOR: 'PLANNER',
+    // DEPT_HEAD and MANAGEMENT have same access as SUPERADMIN (but may be read-only if role is USERS)
+    DEPT_HEAD: 'SUPERADMIN',
+    MANAGEMENT: 'SUPERADMIN',
+  };
+
+  return posisiMap[posisi] || posisi;
+}
+
+/**
+ * Gets all equivalent positions for a given position
+ */
+function getEquivalentPosisiArray(posisi: string): string[] {
+  const equivalent = getEquivalentPosisi(posisi);
+  return equivalent !== posisi ? [posisi, equivalent] : [posisi];
+}
+
+/**
+ * Checks if a user has read-only access
+ * DEPT_HEAD and MANAGEMENT with Role USERS are read-only
+ */
+function isReadOnly(role: string, posisi: string): boolean {
+  const readOnlyPositions = ['DEPT_HEAD', 'MANAGEMENT'];
+  return readOnlyPositions.includes(posisi) && role === 'USERS';
+}
+
+/**
+ * Middleware to check if user has required posisi (including equivalent positions)
  * @param posisis - Array of allowed posisis
  */
 export const authorizePosisi =
@@ -163,10 +201,38 @@ export const authorizePosisi =
       return;
     }
 
-    if (!posisis.includes(req.user.posisi)) {
+    const equivalentPositions = getEquivalentPosisiArray(req.user.posisi);
+    const hasAccess = equivalentPositions.some(pos => posisis.includes(pos));
+
+    if (!hasAccess) {
       res.status(403).json({
         success: false,
         message: "Insufficient permissions",
+      });
+      return;
+    }
+
+    next();
+  };
+
+/**
+ * Middleware to check if user can write (not read-only)
+ */
+export const authorizeWrite =
+  () =>
+  (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+      return;
+    }
+
+    if (isReadOnly(req.user.role, req.user.posisi)) {
+      res.status(403).json({
+        success: false,
+        message: "Read-only access. You do not have permission to modify data.",
       });
       return;
     }

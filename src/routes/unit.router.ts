@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { UnitController } from "../controllers/unit-controllers";
-import { authenticate, authorize, authorizePosisi } from "../middleware/auth.middleware";
+import { authenticate, authorize, authorizePosisi, authorizeWrite } from "../middleware/auth.middleware";
 import { prisma } from "../lib/database";
 
 export class UnitRouter {
@@ -22,10 +22,11 @@ export class UnitRouter {
       this.unitController.getById(req, res)
     );
 
-    // Create unit - protected route, allows PLANNER (posisi), ADMIN, and SUPERADMIN (role)
+    // Create unit - protected route, allows PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.post(
       "/",
       authenticate,
+      authorizeWrite(),
       (req, res, next) => {
         if (!req.user) {
           res.status(401).json({
@@ -34,27 +35,34 @@ export class UnitRouter {
           });
           return;
         }
-        // Allow if user has ADMIN or SUPERADMIN role, OR has PLANNER posisi
+        // Allow if user has ADMIN or SUPERADMIN role
+        if (req.user.role === "ADMIN" || req.user.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow if user has PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
-          req.user.role === "ADMIN" ||
-          req.user.role === "SUPERADMIN" ||
-          req.user.posisi === "PLANNER"
+          req.user.posisi === "PLANNER" ||
+          req.user.posisi === "SUPERVISOR" ||
+          req.user.posisi === "DEPT_HEAD" ||
+          req.user.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message: "Insufficient permissions. Only PLANNER, ADMIN, and SUPERADMIN can create units.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message: "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can create units.",
+        });
       },
       (req, res) => this.unitController.create(req, res)
     );
 
-    // Update unit - protected route, allows PLANNER (posisi), ADMIN, and SUPERADMIN (role)
+    // Update unit - protected route, allows PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.put(
       "/:id",
       authenticate,
+      authorizeWrite(),
       (req, res, next) => {
         if (!req.user) {
           res.status(401).json({
@@ -63,19 +71,25 @@ export class UnitRouter {
           });
           return;
         }
-        // Allow if user has ADMIN or SUPERADMIN role, OR has PLANNER posisi
+        // Allow if user has ADMIN or SUPERADMIN role
+        if (req.user.role === "ADMIN" || req.user.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow if user has PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
-          req.user.role === "ADMIN" ||
-          req.user.role === "SUPERADMIN" ||
-          req.user.posisi === "PLANNER"
+          req.user.posisi === "PLANNER" ||
+          req.user.posisi === "SUPERVISOR" ||
+          req.user.posisi === "DEPT_HEAD" ||
+          req.user.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message: "Insufficient permissions. Only PLANNER, ADMIN, and SUPERADMIN can update units.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message: "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can update units.",
+        });
       },
       (req, res) => this.unitController.update(req, res)
     );
@@ -88,10 +102,11 @@ export class UnitRouter {
       (req, res) => this.unitController.delete(req, res)
     );
 
-    // Bulk create units - protected route, allows PLANNER (posisi), ADMIN, and SUPERADMIN (role)
+    // Bulk create units - protected route, allows PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.post(
       "/bulk-create",
       authenticate,
+      authorizeWrite(),
       (req, res, next) => {
         if (!req.user) {
           res.status(401).json({
@@ -100,19 +115,25 @@ export class UnitRouter {
           });
           return;
         }
-        // Allow if user has ADMIN or SUPERADMIN role, OR has PLANNER posisi
+        // Allow if user has ADMIN or SUPERADMIN role
+        if (req.user.role === "ADMIN" || req.user.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow if user has PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
-          req.user.role === "ADMIN" ||
-          req.user.role === "SUPERADMIN" ||
-          req.user.posisi === "PLANNER"
+          req.user.posisi === "PLANNER" ||
+          req.user.posisi === "SUPERVISOR" ||
+          req.user.posisi === "DEPT_HEAD" ||
+          req.user.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message: "Insufficient permissions. Only PLANNER, ADMIN, and SUPERADMIN can bulk create units.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message: "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can bulk create units.",
+        });
       },
       (req, res) => this.unitController.bulkCreate(req, res)
     );

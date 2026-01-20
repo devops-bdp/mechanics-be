@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { SuperAdminController } from "../controllers/superadmin-controller";
-import { authenticate, authorize } from "../middleware/auth.middleware";
+import { authenticate, authorize, authorizePosisi, authorizeWrite } from "../middleware/auth.middleware";
 import { prisma } from "../lib/database";
 
 export class SuperAdminRouter {
@@ -16,31 +16,65 @@ export class SuperAdminRouter {
   private setupRoutes(): void {
     // ==================== USER MANAGEMENT ====================
     
-    // Get all users - only SUPERADMIN can access
+    // Get all users - SUPERADMIN role or DEPT_HEAD/MANAGEMENT posisi (maps to SUPERADMIN) can access
     this.router.get(
       "/users",
       authenticate,
-      authorize("SUPERADMIN"),
+      (req, res, next) => {
+        if (req.user?.role === "SUPERADMIN" || 
+            req.user?.posisi === "DEPT_HEAD" || 
+            req.user?.posisi === "MANAGEMENT") {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions",
+          });
+        }
+      },
       (req, res) => this.superAdminController.getAllUsers(req, res)
     );
 
-    // Get user by id - only SUPERADMIN can access
+    // Get user by id - SUPERADMIN role or DEPT_HEAD/MANAGEMENT posisi (maps to SUPERADMIN) can access
     this.router.get(
       "/users/:id",
       authenticate,
-      authorize("SUPERADMIN"),
+      (req, res, next) => {
+        if (req.user?.role === "SUPERADMIN" || 
+            req.user?.posisi === "DEPT_HEAD" || 
+            req.user?.posisi === "MANAGEMENT") {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions",
+          });
+        }
+      },
       (req, res) => this.superAdminController.getUserById(req, res)
     );
 
-    // Update user - only SUPERADMIN can access
+    // Update user - SUPERADMIN role or DEPT_HEAD/MANAGEMENT posisi (maps to SUPERADMIN) can access, but read-only if role is USERS
     this.router.put(
       "/users/:id",
       authenticate,
-      authorize("SUPERADMIN"),
+      authorizeWrite(),
+      (req, res, next) => {
+        if (req.user?.role === "SUPERADMIN" || 
+            req.user?.posisi === "DEPT_HEAD" || 
+            req.user?.posisi === "MANAGEMENT") {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions",
+          });
+        }
+      },
       (req, res) => this.superAdminController.updateUser(req, res)
     );
 
-    // Delete user - only SUPERADMIN can access
+    // Delete user - only SUPERADMIN role can access (DEPT_HEAD/MANAGEMENT cannot delete)
     this.router.delete(
       "/users/:id",
       authenticate,
@@ -48,15 +82,27 @@ export class SuperAdminRouter {
       (req, res) => this.superAdminController.deleteUser(req, res)
     );
 
-    // Bulk create users - only SUPERADMIN can access
+    // Bulk create users - SUPERADMIN role or DEPT_HEAD/MANAGEMENT posisi (maps to SUPERADMIN) can access, but read-only if role is USERS
     this.router.post(
       "/users/bulk-create",
       authenticate,
-      authorize("SUPERADMIN"),
+      authorizeWrite(),
+      (req, res, next) => {
+        if (req.user?.role === "SUPERADMIN" || 
+            req.user?.posisi === "DEPT_HEAD" || 
+            req.user?.posisi === "MANAGEMENT") {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions",
+          });
+        }
+      },
       (req, res) => this.superAdminController.bulkCreateUsers(req, res)
     );
 
-    // Bulk delete users - only SUPERADMIN can access
+    // Bulk delete users - only SUPERADMIN role can access (DEPT_HEAD/MANAGEMENT cannot delete)
     this.router.post(
       "/users/bulk-delete",
       authenticate,
@@ -66,11 +112,22 @@ export class SuperAdminRouter {
 
     // ==================== ACTIVITY MANAGEMENT ====================
 
-    // Get all activities - only SUPERADMIN can access
+    // Get all activities - SUPERADMIN role or DEPT_HEAD/MANAGEMENT posisi (maps to SUPERADMIN) can access
     this.router.get(
       "/activities",
       authenticate,
-      authorize("SUPERADMIN"),
+      (req, res, next) => {
+        if (req.user?.role === "SUPERADMIN" || 
+            req.user?.posisi === "DEPT_HEAD" || 
+            req.user?.posisi === "MANAGEMENT") {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions",
+          });
+        }
+      },
       (req, res) => this.superAdminController.getAllActivities(req, res)
     );
 
@@ -84,11 +141,22 @@ export class SuperAdminRouter {
 
     // ==================== WORK TIME MANAGEMENT ====================
 
-    // Get all work times - only SUPERADMIN can access
+    // Get all work times - SUPERADMIN role or DEPT_HEAD/MANAGEMENT posisi (maps to SUPERADMIN) can access
     this.router.get(
       "/work-times",
       authenticate,
-      authorize("SUPERADMIN"),
+      (req, res, next) => {
+        if (req.user?.role === "SUPERADMIN" || 
+            req.user?.posisi === "DEPT_HEAD" || 
+            req.user?.posisi === "MANAGEMENT") {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions",
+          });
+        }
+      },
       (req, res) => this.superAdminController.getAllWorkTimes(req, res)
     );
 
@@ -102,11 +170,22 @@ export class SuperAdminRouter {
 
     // ==================== DASHBOARD / STATISTICS ====================
 
-    // Get dashboard statistics - only SUPERADMIN can access
+    // Get dashboard statistics - SUPERADMIN role or DEPT_HEAD/MANAGEMENT posisi (maps to SUPERADMIN) can access
     this.router.get(
       "/dashboard/stats",
       authenticate,
-      authorize("SUPERADMIN"),
+      (req, res, next) => {
+        if (req.user?.role === "SUPERADMIN" || 
+            req.user?.posisi === "DEPT_HEAD" || 
+            req.user?.posisi === "MANAGEMENT") {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions",
+          });
+        }
+      },
       (req, res) => this.superAdminController.getDashboardStats(req, res)
     );
   }

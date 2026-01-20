@@ -4,6 +4,7 @@ import {
   authenticate,
   authorize,
   authorizePosisi,
+  authorizeWrite,
 } from "../middleware/auth.middleware";
 import { prisma } from "../lib/database";
 
@@ -18,24 +19,32 @@ export class PlannerRouter {
   }
 
   private setupRoutes(): void {
-    // Create activity and assign mechanic - only PLANNER posisi, ADMIN, SUPERADMIN can access
+    // Create activity and assign mechanic - PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) can access
     this.router.post(
       "/activities",
       authenticate,
+      authorizeWrite(),
       (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
           req.user?.posisi === "PLANNER" ||
-          req.user?.role === "ADMIN" ||
-          req.user?.role === "SUPERADMIN"
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message:
-              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
       },
       (req, res) => this.plannerController.createActivity(req, res)
     );
@@ -50,156 +59,206 @@ export class PlannerRouter {
       this.plannerController.getActivityById(req, res)
     );
 
-    // Update activity - only PLANNER posisi, ADMIN, SUPERADMIN can access
+    // Update activity - PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) can access
     this.router.put(
       "/activities/:id",
       authenticate,
+      authorizeWrite(),
       (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
           req.user?.posisi === "PLANNER" ||
-          req.user?.role === "ADMIN" ||
-          req.user?.role === "SUPERADMIN"
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message:
-              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
       },
       (req, res) => this.plannerController.updateActivity(req, res)
     );
 
-    // Get mechanics - accessible by PLANNER, ADMIN, SUPERADMIN
+    // Get mechanics - accessible by PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.get(
       "/mechanics",
       authenticate,
       (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
           req.user?.posisi === "PLANNER" ||
-          req.user?.role === "ADMIN" ||
-          req.user?.role === "SUPERADMIN"
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message:
-              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
       },
       (req, res) => this.plannerController.getMechanics(req, res)
     );
 
-    // Get breakdown units report - accessible by PLANNER, ADMIN, SUPERADMIN
+    // Get breakdown units report - accessible by PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.get(
       "/unit-report/breakdown",
       authenticate,
       (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
           req.user?.posisi === "PLANNER" ||
-          req.user?.role === "ADMIN" ||
-          req.user?.role === "SUPERADMIN"
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message:
-              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
       },
       (req, res) => this.plannerController.getBreakdownUnitsReport(req, res)
     );
 
-    // Get mechanics report - accessible by PLANNER, ADMIN, SUPERADMIN
+    // Get mechanics report - accessible by PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.get(
       "/mechanics-report",
       authenticate,
       (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
           req.user?.posisi === "PLANNER" ||
-          req.user?.role === "ADMIN" ||
-          req.user?.role === "SUPERADMIN"
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message:
-              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
       },
       (req, res) => this.plannerController.getMechanicsReport(req, res)
     );
 
-    // Get activity analytics - accessible by PLANNER, ADMIN, SUPERADMIN
+    // Get activity analytics - accessible by PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.get(
       "/analytics/activities",
       authenticate,
       (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
           req.user?.posisi === "PLANNER" ||
-          req.user?.role === "ADMIN" ||
-          req.user?.role === "SUPERADMIN"
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message:
-              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
       },
       (req, res) => this.plannerController.getActivityAnalytics(req, res)
     );
 
-    // Get unit analytics - accessible by PLANNER, ADMIN, SUPERADMIN
+    // Get unit analytics - accessible by PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.get(
       "/analytics/units",
       authenticate,
       (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
           req.user?.posisi === "PLANNER" ||
-          req.user?.role === "ADMIN" ||
-          req.user?.role === "SUPERADMIN"
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message:
-              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
       },
       (req, res) => this.plannerController.getUnitAnalytics(req, res)
     );
 
-    // Get mechanics analytics - accessible by PLANNER, ADMIN, SUPERADMIN
+    // Get mechanics analytics - accessible by PLANNER, SUPERVISOR (maps to PLANNER), ADMIN, SUPERADMIN, DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN)
     this.router.get(
       "/analytics/mechanics",
       authenticate,
       (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
         if (
           req.user?.posisi === "PLANNER" ||
-          req.user?.role === "ADMIN" ||
-          req.user?.role === "SUPERADMIN"
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
         ) {
           next();
-        } else {
-          res.status(403).json({
-            success: false,
-            message:
-              "Insufficient permissions. Only PLANNER, ADMIN, or SUPERADMIN can access.",
-          });
+          return;
         }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
       },
       (req, res) => this.plannerController.getMechanicsAnalytics(req, res)
     );
