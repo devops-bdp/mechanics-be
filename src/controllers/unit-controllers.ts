@@ -206,15 +206,66 @@ export class UnitController {
       // Get total count for pagination
       const totalCount = await this.prisma.unit.count({ where });
 
-      // Get paginated units
-      const units = await this.prisma.unit.findMany({
-        where,
-        skip,
-        take: limitNumber,
-        orderBy: {
-          [sortField]: order,
-        },
-      });
+      // For custom unitCode sorting, we need to fetch all matching units first,
+      // sort them, then paginate. For other fields, use normal Prisma sorting.
+      let units: any[];
+      
+      if (sortField === "unitCode") {
+        // Fetch all matching units for custom sorting
+        const allUnits = await this.prisma.unit.findMany({
+          where,
+        });
+
+        // Custom sorting for unitCode: sort by number first, then by prefix
+        allUnits.sort((a, b) => {
+          // Extract numeric part from unit code (e.g., "401" from "PMVV401")
+          const extractNumber = (code: string): number => {
+            const match = code.match(/(\d+)$/);
+            return match ? parseInt(match[1], 10) : 0;
+          };
+
+          // Extract prefix (e.g., "PMVV" from "PMVV401")
+          const extractPrefix = (code: string): string => {
+            const match = code.match(/^([A-Z_]+)/);
+            return match ? match[1] : code;
+          };
+
+          const numA = extractNumber(a.unitCode);
+          const numB = extractNumber(b.unitCode);
+          const prefixA = extractPrefix(a.unitCode);
+          const prefixB = extractPrefix(b.unitCode);
+
+          // First sort by number
+          if (numA !== numB) {
+            return order === "asc" ? numA - numB : numB - numA;
+          }
+
+          // If numbers are equal, sort by prefix
+          if (prefixA !== prefixB) {
+            return order === "asc"
+              ? prefixA.localeCompare(prefixB)
+              : prefixB.localeCompare(prefixA);
+          }
+
+          // If both are equal, sort by full code
+          return order === "asc"
+            ? a.unitCode.localeCompare(b.unitCode)
+            : b.unitCode.localeCompare(a.unitCode);
+        });
+
+        // Apply pagination after sorting
+        units = allUnits.slice(skip, skip + limitNumber);
+      } else {
+        // Use normal Prisma sorting for other fields
+        units = await this.prisma.unit.findMany({
+          where,
+          skip,
+          take: limitNumber,
+          orderBy: {
+            [sortField]: order,
+          },
+        });
+      }
 
       // Calculate pagination metadata
       const totalPages = Math.ceil(totalCount / limitNumber);
