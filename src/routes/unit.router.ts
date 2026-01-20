@@ -87,6 +87,35 @@ export class UnitRouter {
       authorize("ADMIN", "SUPERADMIN"),
       (req, res) => this.unitController.delete(req, res)
     );
+
+    // Bulk create units - protected route, allows PLANNER (posisi), ADMIN, and SUPERADMIN (role)
+    this.router.post(
+      "/bulk-create",
+      authenticate,
+      (req, res, next) => {
+        if (!req.user) {
+          res.status(401).json({
+            success: false,
+            message: "Authentication required",
+          });
+          return;
+        }
+        // Allow if user has ADMIN or SUPERADMIN role, OR has PLANNER posisi
+        if (
+          req.user.role === "ADMIN" ||
+          req.user.role === "SUPERADMIN" ||
+          req.user.posisi === "PLANNER"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message: "Insufficient permissions. Only PLANNER, ADMIN, and SUPERADMIN can bulk create units.",
+          });
+        }
+      },
+      (req, res) => this.unitController.bulkCreate(req, res)
+    );
   }
 
   public getRouter(): Router {

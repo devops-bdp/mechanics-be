@@ -452,4 +452,180 @@ export class UnitController {
       });
     }
   }
+
+  async bulkCreate(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          message: "Authentication required",
+        });
+        return;
+      }
+
+      const unitsData: any[] = req.body;
+
+      if (!Array.isArray(unitsData) || unitsData.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "Request body must be an array of unit data",
+        });
+        return;
+      }
+
+      if (unitsData.length > 100) {
+        res.status(400).json({
+          success: false,
+          message: "Maximum 100 units can be created in a single bulk request",
+        });
+        return;
+      }
+
+      const results: {
+        success: boolean;
+        message: string;
+        unitCode?: string;
+      }[] = [];
+      const unitsToCreate: any[] = [];
+      const existingUnitCodes = new Set<string>();
+
+      // Pre-validation and deduplication within the input array
+      for (const unitData of unitsData) {
+        let {
+          unitType,
+          unitBrand,
+          unitCode,
+          unitDescription,
+          unitImage,
+          unitStatus = UnitStatus.ACTIVE,
+        } = unitData;
+
+        // Basic validation
+        if (!unitType || !unitBrand || !unitCode) {
+          results.push({
+            success: false,
+            message: "Missing required fields: unitType, unitBrand, unitCode",
+            unitCode: unitCode || "N/A",
+          });
+          continue;
+        }
+
+        // Validate unitType
+        const validUnitTypes = Object.values(UnitType);
+        if (!validUnitTypes.includes(unitType as UnitType)) {
+          results.push({
+            success: false,
+            message: `Invalid unitType. Valid types are: ${validUnitTypes.join(", ")}`,
+            unitCode,
+          });
+          continue;
+        }
+
+        // Validate unitBrand
+        const validUnitBrands = Object.values(UnitBrand);
+        if (!validUnitBrands.includes(unitBrand as UnitBrand)) {
+          results.push({
+            success: false,
+            message: `Invalid unitBrand. Valid brands are: ${validUnitBrands.join(", ")}`,
+            unitCode,
+          });
+          continue;
+        }
+
+        // Validate unitStatus if provided
+        if (unitStatus) {
+          const validStatuses = Object.values(UnitStatus);
+          if (!validStatuses.includes(unitStatus as UnitStatus)) {
+            results.push({
+              success: false,
+              message: `Invalid unitStatus. Valid statuses are: ${validStatuses.join(", ")}`,
+              unitCode,
+            });
+            continue;
+          }
+        }
+
+        // Check for duplicates within the current batch
+        if (existingUnitCodes.has(unitCode)) {
+          results.push({
+            success: false,
+            message: "Duplicate unitCode in batch",
+            unitCode,
+          });
+          continue;
+        }
+
+        existingUnitCodes.add(unitCode);
+
+        unitsToCreate.push({
+          unitType: unitType as UnitType,
+          unitBrand: unitBrand as UnitBrand,
+          unitCode,
+          unitDescription: unitDescription || undefined,
+          unitImage: unitImage || undefined,
+          unitStatus: unitStatus as UnitStatus,
+        });
+      }
+
+      // Check for duplicates against the database
+      const unitsInDb = await this.prisma.unit.findMany({
+        where: { unitCode: { in: unitsToCreate.map((u) => u.unitCode) } },
+        select: { unitCode: true },
+      });
+
+      const dbExistingCodes = new Set(unitsInDb.map((u) => u.unitCode));
+
+      const finalUnitsToCreate: any[] = [];
+      for (const unit of unitsToCreate) {
+        if (dbExistingCodes.has(unit.unitCode)) {
+          results.push({
+            success: false,
+            message: "Unit with this code already exists in database",
+            unitCode: unit.unitCode,
+          });
+        } else {
+          finalUnitsToCreate.push(unit);
+        }
+      }
+
+      // Create units in a transaction
+      const createdUnits = await this.prisma.$transaction(
+        finalUnitsToCreate.map((unit) =>
+          this.prisma.unit.create({
+            data: {
+              ...unit,
+              createdBy: userId,
+            },
+          })
+        )
+      );
+
+      createdUnits.forEach((unit) => {
+        results.push({
+          success: true,
+          message: "Unit created successfully",
+          unitCode: unit.unitCode,
+        });
+      });
+
+      const successfulCreations = results.filter((r) => r.success).length;
+      const failedCreations = results.filter((r) => !r.success).length;
+
+      res.status(200).json({
+        success: true,
+        message: `${successfulCreations} units created, ${failedCreations} failed.`,
+        data: results,
+      });
+    } catch (error) {
+      console.error("Bulk create units error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error:
+          process.env.NODE_ENV === "development" ? String(error) : undefined,
+      });
+    }
+  }
 }
