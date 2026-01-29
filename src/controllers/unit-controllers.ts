@@ -44,7 +44,7 @@ export class UnitController {
         res.status(400).json({
           success: false,
           message: `Invalid unitType. Valid types are: ${validUnitTypes.join(
-            ", "
+            ", ",
           )}`,
         });
         return;
@@ -56,7 +56,7 @@ export class UnitController {
         res.status(400).json({
           success: false,
           message: `Invalid unitBrand. Valid brands are: ${validUnitBrands.join(
-            ", "
+            ", ",
           )}`,
         });
         return;
@@ -69,7 +69,7 @@ export class UnitController {
           res.status(400).json({
             success: false,
             message: `Invalid unitStatus. Valid statuses are: ${validStatuses.join(
-              ", "
+              ", ",
             )}`,
           });
           return;
@@ -145,10 +145,10 @@ export class UnitController {
         return;
       }
 
-      if (limitNumber < 1 || limitNumber > 100) {
+      if (limitNumber < 1 || limitNumber > 1000) {
         res.status(400).json({
           success: false,
-          message: "Limit must be between 1 and 100",
+          message: "Limit must be between 1 and 1000",
         });
         return;
       }
@@ -209,7 +209,7 @@ export class UnitController {
       // For custom unitCode sorting, we need to fetch all matching units first,
       // sort them, then paginate. For other fields, use normal Prisma sorting.
       let units: any[];
-      
+
       if (sortField === "unitCode") {
         // Fetch all matching units for custom sorting
         const allUnits = await this.prisma.unit.findMany({
@@ -372,7 +372,7 @@ export class UnitController {
           res.status(400).json({
             success: false,
             message: `Invalid unitType. Valid types are: ${validUnitTypes.join(
-              ", "
+              ", ",
             )}`,
           });
           return;
@@ -386,7 +386,7 @@ export class UnitController {
           res.status(400).json({
             success: false,
             message: `Invalid unitBrand. Valid brands are: ${validUnitBrands.join(
-              ", "
+              ", ",
             )}`,
           });
           return;
@@ -400,7 +400,7 @@ export class UnitController {
           res.status(400).json({
             success: false,
             message: `Invalid unitStatus. Valid statuses are: ${validStatuses.join(
-              ", "
+              ", ",
             )}`,
           });
           return;
@@ -660,14 +660,14 @@ export class UnitController {
               unitCode: { in: finalUnitsToCreate.map((u) => u.unitCode) },
             },
             orderBy: {
-              createdAt: 'desc',
+              createdAt: "desc",
             },
           });
         },
         {
           maxWait: 10000, // Maximum time to wait for a transaction slot
           timeout: 30000, // Maximum time the transaction can run (30 seconds)
-        }
+        },
       );
 
       createdUnits.forEach((unit) => {

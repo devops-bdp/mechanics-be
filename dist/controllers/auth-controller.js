@@ -8,6 +8,7 @@ const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const database_1 = require("../lib/database");
 const client_1 = require("@prisma/client");
+const cloudinary_1 = require("../lib/cloudinary");
 class AuthController {
     async createAccount(req, res) {
         try {
@@ -401,6 +402,79 @@ class AuthController {
         }
         catch (error) {
             console.error("Get all roles error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    async uploadProfilePicture(req, res) {
+        try {
+            // User ID from authenticated token
+            const userId = req.user?.id;
+            if (!userId) {
+                res.status(401).json({
+                    success: false,
+                    message: "Authentication required",
+                });
+                return;
+            }
+            // Check if file exists
+            if (!req.file) {
+                res.status(400).json({
+                    success: false,
+                    message: "No file uploaded",
+                });
+                return;
+            }
+            // Validate file size (max 5MB before compression)
+            const MAX_SIZE = 5 * 1024 * 1024; // 5MB
+            if (req.file.size > MAX_SIZE) {
+                res.status(400).json({
+                    success: false,
+                    message: "File size exceeds 5MB limit",
+                });
+                return;
+            }
+            // Get current user to check for existing avatar
+            const currentUser = await database_1.prisma.user.findUnique({
+                where: { id: userId },
+                select: { avatar: true },
+            });
+            // Upload new profile picture to Cloudinary
+            const imageUrl = await (0, cloudinary_1.uploadProfilePicture)(req.file.buffer, req.file.originalname, userId);
+            // Delete old profile picture from Cloudinary if exists
+            if (currentUser?.avatar) {
+                await (0, cloudinary_1.deleteProfilePicture)(currentUser.avatar);
+            }
+            // Update user avatar in database
+            const updatedUser = await database_1.prisma.user.update({
+                where: { id: userId },
+                data: { avatar: imageUrl },
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    nrp: true,
+                    role: true,
+                    posisi: true,
+                    avatar: true,
+                    phoneNumber: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    password: false,
+                },
+            });
+            res.status(200).json({
+                success: true,
+                message: "Profile picture uploaded successfully",
+                data: updatedUser,
+            });
+        }
+        catch (error) {
+            console.error("Upload profile picture error:", error);
             res.status(500).json({
                 success: false,
                 message: "Internal server error",

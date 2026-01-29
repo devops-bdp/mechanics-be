@@ -640,6 +640,7 @@ class SupervisorController {
                     const durationMinutes = Math.floor(durationSeconds / 60);
                     return {
                         ...task,
+                        durationSeconds, // Store seconds for accurate calculation
                         durationMinutes,
                         durationFormatted,
                         isActive,
@@ -647,8 +648,8 @@ class SupervisorController {
                 });
                 // Calculate total work time for this mechanic
                 const totalTaskTimeSeconds = tasksWithDuration.reduce((sum, task) => {
-                    // Calculate seconds from durationMinutes
-                    return sum + (task.durationMinutes * 60);
+                    // Use durationSeconds directly for accurate calculation
+                    return sum + (task.durationSeconds || 0);
                 }, 0);
                 const totalHours = Math.floor(totalTaskTimeSeconds / 3600);
                 const totalMinutes = Math.floor((totalTaskTimeSeconds % 3600) / 60);

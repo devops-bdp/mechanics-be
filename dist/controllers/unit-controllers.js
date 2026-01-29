@@ -107,10 +107,10 @@ class UnitController {
                 });
                 return;
             }
-            if (limitNumber < 1 || limitNumber > 100) {
+            if (limitNumber < 1 || limitNumber > 1000) {
                 res.status(400).json({
                     success: false,
-                    message: "Limit must be between 1 and 100",
+                    message: "Limit must be between 1 and 1000",
                 });
                 return;
             }
@@ -162,15 +162,59 @@ class UnitController {
             const order = sortOrder === "asc" ? "asc" : "desc";
             // Get total count for pagination
             const totalCount = await this.prisma.unit.count({ where });
-            // Get paginated units
-            const units = await this.prisma.unit.findMany({
-                where,
-                skip,
-                take: limitNumber,
-                orderBy: {
-                    [sortField]: order,
-                },
-            });
+            // For custom unitCode sorting, we need to fetch all matching units first,
+            // sort them, then paginate. For other fields, use normal Prisma sorting.
+            let units;
+            if (sortField === "unitCode") {
+                // Fetch all matching units for custom sorting
+                const allUnits = await this.prisma.unit.findMany({
+                    where,
+                });
+                // Custom sorting for unitCode: sort by number first, then by prefix
+                allUnits.sort((a, b) => {
+                    // Extract numeric part from unit code (e.g., "401" from "PMVV401")
+                    const extractNumber = (code) => {
+                        const match = code.match(/(\d+)$/);
+                        return match ? parseInt(match[1], 10) : 0;
+                    };
+                    // Extract prefix (e.g., "PMVV" from "PMVV401")
+                    const extractPrefix = (code) => {
+                        const match = code.match(/^([A-Z_]+)/);
+                        return match ? match[1] : code;
+                    };
+                    const numA = extractNumber(a.unitCode);
+                    const numB = extractNumber(b.unitCode);
+                    const prefixA = extractPrefix(a.unitCode);
+                    const prefixB = extractPrefix(b.unitCode);
+                    // First sort by number
+                    if (numA !== numB) {
+                        return order === "asc" ? numA - numB : numB - numA;
+                    }
+                    // If numbers are equal, sort by prefix
+                    if (prefixA !== prefixB) {
+                        return order === "asc"
+                            ? prefixA.localeCompare(prefixB)
+                            : prefixB.localeCompare(prefixA);
+                    }
+                    // If both are equal, sort by full code
+                    return order === "asc"
+                        ? a.unitCode.localeCompare(b.unitCode)
+                        : b.unitCode.localeCompare(a.unitCode);
+                });
+                // Apply pagination after sorting
+                units = allUnits.slice(skip, skip + limitNumber);
+            }
+            else {
+                // Use normal Prisma sorting for other fields
+                units = await this.prisma.unit.findMany({
+                    where,
+                    skip,
+                    take: limitNumber,
+                    orderBy: {
+                        [sortField]: order,
+                    },
+                });
+            }
             // Calculate pagination metadata
             const totalPages = Math.ceil(totalCount / limitNumber);
             const hasNextPage = pageNumber < totalPages;
@@ -366,6 +410,164 @@ class UnitController {
         }
         catch (error) {
             console.error("Delete unit error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    async bulkCreate(req, res) {
+        try {
+            const userId = req.user?.id;
+            if (!userId) {
+                res.status(401).json({
+                    success: false,
+                    message: "Authentication required",
+                });
+                return;
+            }
+            const unitsData = req.body;
+            if (!Array.isArray(unitsData) || unitsData.length === 0) {
+                res.status(400).json({
+                    success: false,
+                    message: "Request body must be an array of unit data",
+                });
+                return;
+            }
+            if (unitsData.length > 100) {
+                res.status(400).json({
+                    success: false,
+                    message: "Maximum 100 units can be created in a single bulk request",
+                });
+                return;
+            }
+            const results = [];
+            const unitsToCreate = [];
+            const existingUnitCodes = new Set();
+            // Pre-validation and deduplication within the input array
+            for (const unitData of unitsData) {
+                let { unitType, unitBrand, unitCode, unitDescription, unitImage, unitStatus = client_1.UnitStatus.ACTIVE, } = unitData;
+                // Basic validation
+                if (!unitType || !unitBrand || !unitCode) {
+                    results.push({
+                        success: false,
+                        message: "Missing required fields: unitType, unitBrand, unitCode",
+                        unitCode: unitCode || "N/A",
+                    });
+                    continue;
+                }
+                // Validate unitType
+                const validUnitTypes = Object.values(client_1.UnitType);
+                if (!validUnitTypes.includes(unitType)) {
+                    results.push({
+                        success: false,
+                        message: `Invalid unitType. Valid types are: ${validUnitTypes.join(", ")}`,
+                        unitCode,
+                    });
+                    continue;
+                }
+                // Validate unitBrand
+                const validUnitBrands = Object.values(client_1.UnitBrand);
+                if (!validUnitBrands.includes(unitBrand)) {
+                    results.push({
+                        success: false,
+                        message: `Invalid unitBrand. Valid brands are: ${validUnitBrands.join(", ")}`,
+                        unitCode,
+                    });
+                    continue;
+                }
+                // Validate unitStatus if provided
+                if (unitStatus) {
+                    const validStatuses = Object.values(client_1.UnitStatus);
+                    if (!validStatuses.includes(unitStatus)) {
+                        results.push({
+                            success: false,
+                            message: `Invalid unitStatus. Valid statuses are: ${validStatuses.join(", ")}`,
+                            unitCode,
+                        });
+                        continue;
+                    }
+                }
+                // Check for duplicates within the current batch
+                if (existingUnitCodes.has(unitCode)) {
+                    results.push({
+                        success: false,
+                        message: "Duplicate unitCode in batch",
+                        unitCode,
+                    });
+                    continue;
+                }
+                existingUnitCodes.add(unitCode);
+                unitsToCreate.push({
+                    unitType: unitType,
+                    unitBrand: unitBrand,
+                    unitCode,
+                    unitDescription: unitDescription || undefined,
+                    unitImage: unitImage || undefined,
+                    unitStatus: unitStatus,
+                });
+            }
+            // Check for duplicates against the database
+            const unitsInDb = await this.prisma.unit.findMany({
+                where: { unitCode: { in: unitsToCreate.map((u) => u.unitCode) } },
+                select: { unitCode: true },
+            });
+            const dbExistingCodes = new Set(unitsInDb.map((u) => u.unitCode));
+            const finalUnitsToCreate = [];
+            for (const unit of unitsToCreate) {
+                if (dbExistingCodes.has(unit.unitCode)) {
+                    results.push({
+                        success: false,
+                        message: "Unit with this code already exists in database",
+                        unitCode: unit.unitCode,
+                    });
+                }
+                else {
+                    finalUnitsToCreate.push(unit);
+                }
+            }
+            // Create units in a transaction with increased timeout
+            // Use createMany for better performance, then fetch created units
+            const createdUnits = await this.prisma.$transaction(async (tx) => {
+                // Use createMany for better performance
+                await tx.unit.createMany({
+                    data: finalUnitsToCreate.map((unit) => ({
+                        ...unit,
+                        createdBy: userId,
+                    })),
+                    skipDuplicates: false, // We already checked for duplicates
+                });
+                // Fetch the created units to return them
+                return await tx.unit.findMany({
+                    where: {
+                        unitCode: { in: finalUnitsToCreate.map((u) => u.unitCode) },
+                    },
+                    orderBy: {
+                        createdAt: "desc",
+                    },
+                });
+            }, {
+                maxWait: 10000, // Maximum time to wait for a transaction slot
+                timeout: 30000, // Maximum time the transaction can run (30 seconds)
+            });
+            createdUnits.forEach((unit) => {
+                results.push({
+                    success: true,
+                    message: "Unit created successfully",
+                    unitCode: unit.unitCode,
+                });
+            });
+            const successfulCreations = results.filter((r) => r.success).length;
+            const failedCreations = results.filter((r) => !r.success).length;
+            res.status(200).json({
+                success: true,
+                message: `${successfulCreations} units created, ${failedCreations} failed.`,
+                data: results,
+            });
+        }
+        catch (error) {
+            console.error("Bulk create units error:", error);
             res.status(500).json({
                 success: false,
                 message: "Internal server error",

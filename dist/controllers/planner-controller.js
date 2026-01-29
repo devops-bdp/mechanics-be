@@ -408,6 +408,7 @@ class PlannerController {
                         const durationMinutes = Math.floor(durationSeconds / 60);
                         return {
                             ...task,
+                            durationSeconds, // Store seconds for accurate calculation
                             durationMinutes,
                             durationFormatted,
                             isActive,
@@ -415,8 +416,8 @@ class PlannerController {
                     });
                     // Calculate total work time for this mechanic
                     const totalTaskTimeSeconds = tasksWithDuration.reduce((sum, task) => {
-                        // Calculate seconds from durationMinutes
-                        return sum + task.durationMinutes * 60;
+                        // Use durationSeconds directly for accurate calculation
+                        return sum + (task.durationSeconds || 0);
                     }, 0);
                     const totalHours = Math.floor(totalTaskTimeSeconds / 3600);
                     const totalMinutes = Math.floor((totalTaskTimeSeconds % 3600) / 60);
@@ -532,6 +533,7 @@ class PlannerController {
                     const durationMinutes = Math.floor(durationSeconds / 60);
                     return {
                         ...task,
+                        durationSeconds, // Store seconds for accurate calculation
                         durationMinutes,
                         durationFormatted,
                         isActive,
@@ -539,8 +541,8 @@ class PlannerController {
                 });
                 // Calculate total work time for this mechanic
                 const totalTaskTimeSeconds = tasksWithDuration.reduce((sum, task) => {
-                    // Calculate seconds from durationMinutes
-                    return sum + task.durationMinutes * 60;
+                    // Use durationSeconds directly for accurate calculation
+                    return sum + (task.durationSeconds || 0);
                 }, 0);
                 const totalHours = Math.floor(totalTaskTimeSeconds / 3600);
                 const totalMinutes = Math.floor((totalTaskTimeSeconds % 3600) / 60);
@@ -1118,6 +1120,62 @@ class PlannerController {
                     id: true,
                 },
             });
+            // Get activities with tasks to calculate total time per activity type
+            const activitiesWithTasks = await this.prisma.mechanicActivity.findMany({
+                select: {
+                    id: true,
+                    activityName: true,
+                    mechanics: {
+                        select: {
+                            tasks: {
+                                select: {
+                                    startedAt: true,
+                                    stoppedAt: true,
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            // Calculate total time per activity type
+            const timeByActivityType = {};
+            activitiesWithTasks.forEach((activity) => {
+                let totalSeconds = 0;
+                activity.mechanics.forEach((mechanic) => {
+                    mechanic.tasks.forEach((task) => {
+                        if (task.startedAt && task.stoppedAt) {
+                            // Task completed - calculate duration
+                            const durationSeconds = Math.floor((task.stoppedAt.getTime() - task.startedAt.getTime()) / 1000);
+                            totalSeconds += durationSeconds;
+                        }
+                        else if (task.startedAt && !task.stoppedAt) {
+                            // Task in progress - calculate current duration
+                            const now = new Date();
+                            const durationSeconds = Math.floor((now.getTime() - task.startedAt.getTime()) / 1000);
+                            totalSeconds += durationSeconds;
+                        }
+                    });
+                });
+                if (!timeByActivityType[activity.activityName]) {
+                    timeByActivityType[activity.activityName] = 0;
+                }
+                timeByActivityType[activity.activityName] += totalSeconds;
+            });
+            // Convert to hours and format
+            const byTypeWithTime = activitiesByType.map((item) => {
+                const totalSeconds = timeByActivityType[item.activityName] || 0;
+                const totalHours = totalSeconds / 3600;
+                const hours = Math.floor(totalHours);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = totalSeconds % 60;
+                return {
+                    activityName: item.activityName,
+                    count: item._count.id,
+                    totalSeconds,
+                    totalHours: parseFloat(totalHours.toFixed(2)),
+                    totalHoursFormatted: `${hours}h ${minutes}m ${seconds}s`,
+                };
+            });
             // Get activities created in last 6 months (monthly)
             const sixMonthsAgo = new Date();
             sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
@@ -1165,10 +1223,7 @@ class PlannerController {
                         status: item.activityStatus,
                         count: item._count.id,
                     })),
-                    byType: activitiesByType.map((item) => ({
-                        activityName: item.activityName,
-                        count: item._count.id,
-                    })),
+                    byType: byTypeWithTime,
                     monthlyTrend,
                 },
             });

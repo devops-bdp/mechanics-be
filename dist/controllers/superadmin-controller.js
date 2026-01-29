@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SuperAdminController = void 0;
+const client_1 = require("@prisma/client");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 class SuperAdminController {
     constructor(prisma) {
@@ -335,6 +336,308 @@ class SuperAdminController {
         }
         catch (error) {
             console.error("Delete user error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    async bulkDeleteUsers(req, res) {
+        try {
+            const { userIds } = req.body;
+            const userIdFromToken = req.user?.id;
+            // Validation
+            if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+                res.status(400).json({
+                    success: false,
+                    message: "User IDs array is required and must not be empty",
+                });
+                return;
+            }
+            // Limit bulk delete to 100 users at a time
+            if (userIds.length > 100) {
+                res.status(400).json({
+                    success: false,
+                    message: "Maximum 100 users can be deleted at once",
+                });
+                return;
+            }
+            // Prevent self-deletion
+            if (userIds.includes(userIdFromToken)) {
+                res.status(400).json({
+                    success: false,
+                    message: "You cannot delete your own account",
+                });
+                return;
+            }
+            const results = {
+                successful: [],
+                failed: [],
+            };
+            // Check which users exist
+            const existingUsers = await this.prisma.user.findMany({
+                where: {
+                    id: { in: userIds },
+                },
+                select: {
+                    id: true,
+                    email: true,
+                },
+            });
+            const existingUserIds = new Set(existingUsers.map((u) => u.id));
+            const existingUserMap = new Map(existingUsers.map((u) => [u.id, u.email]));
+            // Process deletions
+            for (const userId of userIds) {
+                if (!existingUserIds.has(userId)) {
+                    results.failed.push({
+                        userId,
+                        reason: "User not found",
+                    });
+                    continue;
+                }
+                try {
+                    await this.prisma.user.delete({
+                        where: { id: userId },
+                    });
+                    results.successful.push(userId);
+                }
+                catch (error) {
+                    results.failed.push({
+                        userId,
+                        reason: error.message || "Failed to delete user",
+                    });
+                }
+            }
+            res.status(200).json({
+                success: true,
+                message: `Bulk delete completed. ${results.successful.length} successful, ${results.failed.length} failed.`,
+                data: {
+                    successful: results.successful.map((id) => ({
+                        id,
+                        email: existingUserMap.get(id) || "Unknown",
+                    })),
+                    failed: results.failed.map((fail) => ({
+                        ...fail,
+                        email: existingUserMap.get(fail.userId) || "Unknown",
+                    })),
+                    summary: {
+                        total: userIds.length,
+                        successful: results.successful.length,
+                        failed: results.failed.length,
+                    },
+                },
+            });
+        }
+        catch (error) {
+            console.error("Bulk delete users error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    async bulkCreateUsers(req, res) {
+        try {
+            const { users } = req.body;
+            // Validation
+            if (!users || !Array.isArray(users) || users.length === 0) {
+                res.status(400).json({
+                    success: false,
+                    message: "Users array is required and must not be empty",
+                });
+                return;
+            }
+            // Limit bulk create to 100 users at a time
+            if (users.length > 100) {
+                res.status(400).json({
+                    success: false,
+                    message: "Maximum 100 users can be created at once",
+                });
+                return;
+            }
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            const validRoles = Object.values(client_1.Role);
+            const validPosisi = Object.values(client_1.Posision);
+            const saltRounds = 10;
+            const results = {
+                successful: [],
+                failed: [],
+            };
+            // Check for duplicate emails and NRPs in the input
+            const emails = new Set();
+            const nrps = new Set();
+            for (let i = 0; i < users.length; i++) {
+                const user = users[i];
+                const index = i + 1;
+                // Validate required fields
+                if (!user.email || !user.password || !user.firstName || !user.lastName || !user.nrp) {
+                    results.failed.push({
+                        index,
+                        email: user.email || "N/A",
+                        reason: "Missing required fields: email, password, firstName, lastName, nrp",
+                    });
+                    continue;
+                }
+                // Check for duplicates in input
+                if (emails.has(user.email.toLowerCase())) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: "Duplicate email in the input data",
+                    });
+                    continue;
+                }
+                const nrpNum = parseInt(String(user.nrp));
+                if (isNaN(nrpNum) || nrpNum <= 0) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: "Invalid NRP (must be a positive integer)",
+                    });
+                    continue;
+                }
+                if (nrps.has(nrpNum)) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: "Duplicate NRP in the input data",
+                    });
+                    continue;
+                }
+                // Validate email format
+                if (!emailRegex.test(user.email)) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: "Invalid email format",
+                    });
+                    continue;
+                }
+                // Validate password
+                if (user.password.length < 6) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: "Password must be at least 6 characters long",
+                    });
+                    continue;
+                }
+                // Validate role
+                let role = user.role || client_1.Role.USERS;
+                if (typeof role === "string" && role.toUpperCase() === "SUPER_ADMIN") {
+                    role = client_1.Role.SUPERADMIN;
+                }
+                else if (typeof role === "string") {
+                    role = role.toUpperCase();
+                }
+                if (!validRoles.includes(role)) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: `Invalid role. Valid roles are: ${validRoles.join(", ")}`,
+                    });
+                    continue;
+                }
+                // Validate posisi
+                let posisi = user.posisi || client_1.Posision.MEKANIK;
+                if (typeof posisi === "string") {
+                    posisi = posisi.toUpperCase();
+                }
+                if (!validPosisi.includes(posisi)) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: `Invalid posisi. Valid posisi are: ${validPosisi.join(", ")}`,
+                    });
+                    continue;
+                }
+                emails.add(user.email.toLowerCase());
+                nrps.add(nrpNum);
+                // Check if user already exists in database
+                const existingUser = await this.prisma.user.findUnique({
+                    where: { email: user.email },
+                });
+                if (existingUser) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: "User with this email already exists",
+                    });
+                    continue;
+                }
+                // Check if NRP already exists
+                const existingNrp = await this.prisma.user.findFirst({
+                    where: { nrp: nrpNum },
+                });
+                if (existingNrp) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: "User with this NRP already exists",
+                    });
+                    continue;
+                }
+                // Hash password
+                const hashedPassword = await bcrypt_1.default.hash(user.password, saltRounds);
+                // Convert phoneNumber to string if provided
+                const phoneNumberStr = user.phoneNumber ? String(user.phoneNumber) : undefined;
+                // Create user
+                try {
+                    const createdUser = await this.prisma.user.create({
+                        data: {
+                            email: user.email,
+                            firstName: user.firstName,
+                            lastName: user.lastName,
+                            nrp: nrpNum,
+                            role: role,
+                            posisi: posisi,
+                            phoneNumber: phoneNumberStr,
+                            avatar: user.avatar || undefined,
+                            password: hashedPassword,
+                        },
+                        select: {
+                            id: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                            nrp: true,
+                            role: true,
+                            posisi: true,
+                            avatar: true,
+                            phoneNumber: true,
+                            createdAt: true,
+                            updatedAt: true,
+                            password: false,
+                        },
+                    });
+                    results.successful.push(createdUser);
+                }
+                catch (createError) {
+                    results.failed.push({
+                        index,
+                        email: user.email,
+                        reason: createError.message || "Failed to create user",
+                    });
+                }
+            }
+            res.status(200).json({
+                success: true,
+                message: `Bulk create completed. ${results.successful.length} successful, ${results.failed.length} failed.`,
+                data: {
+                    successful: results.successful,
+                    failed: results.failed,
+                    summary: {
+                        total: users.length,
+                        successful: results.successful.length,
+                        failed: results.failed.length,
+                    },
+                },
+            });
+        }
+        catch (error) {
+            console.error("Bulk create users error:", error);
             res.status(500).json({
                 success: false,
                 message: "Internal server error",
