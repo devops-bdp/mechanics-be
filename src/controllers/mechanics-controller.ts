@@ -10,7 +10,7 @@ export class MechanicsController {
 
   // Get task sequence for each activity type
   private getTaskSequence(
-    activityName: string
+    activityName: string,
   ): { taskName: string; order: number }[] {
     const sequences: Record<string, { taskName: string; order: number }[]> = {
       PERIODIC_SERVICE: [
@@ -134,7 +134,9 @@ export class MechanicsController {
   }
 
   // Helper method to update main activity status when activity is started
-  private async updateMainActivityStatusOnStart(activityId: string): Promise<void> {
+  private async updateMainActivityStatusOnStart(
+    activityId: string,
+  ): Promise<void> {
     try {
       const activity = await this.prisma.mechanicActivity.findUnique({
         where: { id: activityId },
@@ -193,11 +195,11 @@ export class MechanicsController {
             allCompleted = false;
             break;
           }
-          
+
           const allTasksCompleted = assignment.tasks.every(
-            (task) => task.startedAt && task.stoppedAt
+            (task) => task.startedAt && task.stoppedAt,
           );
-          
+
           if (!allTasksCompleted) {
             allCompleted = false;
             break;
@@ -221,16 +223,17 @@ export class MechanicsController {
         });
       } else {
         // Check if at least one mechanic has started
-        const hasInProgress = allAssignments.some(
-          (assignment) => {
-            if (supportsTasks) {
-              // Check if any task is started
-              return assignment.tasks.some((task) => task.startedAt);
-            } else {
-              return assignment.status === "IN_PROGRESS" || assignment.status === "DELAYED";
-            }
+        const hasInProgress = allAssignments.some((assignment) => {
+          if (supportsTasks) {
+            // Check if any task is started
+            return assignment.tasks.some((task) => task.startedAt);
+          } else {
+            return (
+              assignment.status === "IN_PROGRESS" ||
+              assignment.status === "DELAYED"
+            );
           }
-        );
+        });
 
         if (hasInProgress) {
           // Update main activity status to IN_PROGRESS if still PENDING
@@ -773,11 +776,24 @@ export class MechanicsController {
   async startActivity(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
+      const userPosisi = req.user?.posisi;
 
       if (!userId) {
         res.status(401).json({
           success: false,
           message: "Authentication required",
+        });
+        return;
+      }
+
+      // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can start activities
+      if (
+        userPosisi !== "GROUP_LEADER_MEKANIK" &&
+        userPosisi !== "GROUP_LEADER_TYRE"
+      ) {
+        res.status(403).json({
+          success: false,
+          message: "Only Group Leaders can start activities",
         });
         return;
       }
@@ -871,7 +887,7 @@ export class MechanicsController {
             // Some tasks exist, find and start the first task
             const firstTask = taskSequence[0];
             const existingFirstTask = assignment.tasks.find(
-              (t) => t.taskName === firstTask.taskName
+              (t) => t.taskName === firstTask.taskName,
             );
 
             if (existingFirstTask) {
@@ -900,7 +916,7 @@ export class MechanicsController {
             // Create any missing tasks from the sequence
             const existingTaskNames = assignment.tasks.map((t) => t.taskName);
             const missingTasks = taskSequence.filter(
-              (task) => !existingTaskNames.includes(task.taskName as any)
+              (task) => !existingTaskNames.includes(task.taskName as any),
             );
 
             if (missingTasks.length > 0) {
@@ -1024,7 +1040,7 @@ export class MechanicsController {
         res.status(400).json({
           success: false,
           message: `Invalid pauseReason. Valid reasons are: ${validPauseReasons.join(
-            ", "
+            ", ",
           )}`,
         });
         return;
@@ -1121,7 +1137,7 @@ export class MechanicsController {
 
       // Calculate pause duration and add to total work time
       const pauseDuration = Math.floor(
-        (new Date().getTime() - assignment.pausedAt.getTime()) / 60000
+        (new Date().getTime() - assignment.pausedAt.getTime()) / 60000,
       );
 
       // Resume activity
@@ -1176,11 +1192,24 @@ export class MechanicsController {
   async stopActivity(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
+      const userPosisi = req.user?.posisi;
 
       if (!userId) {
         res.status(401).json({
           success: false,
           message: "Authentication required",
+        });
+        return;
+      }
+
+      // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can stop activities
+      if (
+        userPosisi !== "GROUP_LEADER_MEKANIK" &&
+        userPosisi !== "GROUP_LEADER_TYRE"
+      ) {
+        res.status(403).json({
+          success: false,
+          message: "Only Group Leaders can stop activities",
         });
         return;
       }
@@ -1233,7 +1262,7 @@ export class MechanicsController {
         // Subtract pause time if any
         if (assignment.pausedAt) {
           const pauseTime = Math.floor(
-            (stopTime.getTime() - assignment.pausedAt.getTime()) / 60000
+            (stopTime.getTime() - assignment.pausedAt.getTime()) / 60000,
           );
           totalWorkTime -= pauseTime;
         }
@@ -1424,11 +1453,24 @@ export class MechanicsController {
   async startTask(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
+      const userPosisi = req.user?.posisi;
 
       if (!userId) {
         res.status(401).json({
           success: false,
           message: "Authentication required",
+        });
+        return;
+      }
+
+      // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can start tasks
+      if (
+        userPosisi !== "GROUP_LEADER_MEKANIK" &&
+        userPosisi !== "GROUP_LEADER_TYRE"
+      ) {
+        res.status(403).json({
+          success: false,
+          message: "Only Group Leaders can start tasks",
         });
         return;
       }
@@ -1479,7 +1521,7 @@ export class MechanicsController {
         res.status(400).json({
           success: false,
           message: `Invalid taskName for ${activityName}. Valid names are: ${validTaskNames.join(
-            ", "
+            ", ",
           )}`,
         });
         return;
@@ -1505,17 +1547,17 @@ export class MechanicsController {
       // Check if previous tasks are completed
       for (let i = 1; i < currentTaskOrder; i++) {
         const prevTaskName = Object.keys(taskOrder).find(
-          (key) => taskOrder[key] === i
+          (key) => taskOrder[key] === i,
         );
         const prevTask = assignment.tasks.find(
-          (t) => t.taskName === prevTaskName
+          (t) => t.taskName === prevTaskName,
         );
         if (!prevTask || !prevTask.stoppedAt) {
           res.status(400).json({
             success: false,
             message: `Please complete ${prevTaskName?.replace(
               /_/g,
-              " "
+              " ",
             )} first`,
           });
           return;
@@ -1524,7 +1566,7 @@ export class MechanicsController {
 
       // Check if task already exists and started
       const existingTask = assignment.tasks.find(
-        (t) => t.taskName === taskName
+        (t) => t.taskName === taskName,
       );
       if (existingTask && existingTask.startedAt) {
         res.status(400).json({
@@ -1608,11 +1650,24 @@ export class MechanicsController {
   async stopTask(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
+      const userPosisi = req.user?.posisi;
 
       if (!userId) {
         res.status(401).json({
           success: false,
           message: "Authentication required",
+        });
+        return;
+      }
+
+      // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can stop tasks
+      if (
+        userPosisi !== "GROUP_LEADER_MEKANIK" &&
+        userPosisi !== "GROUP_LEADER_TYRE"
+      ) {
+        res.status(403).json({
+          success: false,
+          message: "Only Group Leaders can stop tasks",
         });
         return;
       }
@@ -1659,7 +1714,7 @@ export class MechanicsController {
         res.status(400).json({
           success: false,
           message: `Invalid taskName for ${activityName}. Valid names are: ${validTaskNames.join(
-            ", "
+            ", ",
           )}`,
         });
         return;
@@ -1712,9 +1767,9 @@ export class MechanicsController {
       });
 
       // Check if all tasks are completed (all have startedAt and stoppedAt)
-      const allTasksCompleted = allTasks.length > 0 && allTasks.every(
-        (t) => t.startedAt && t.stoppedAt
-      );
+      const allTasksCompleted =
+        allTasks.length > 0 &&
+        allTasks.every((t) => t.startedAt && t.stoppedAt);
 
       // If all tasks are completed, mark the mechanic assignment as COMPLETED
       if (allTasksCompleted) {
@@ -1723,7 +1778,7 @@ export class MechanicsController {
         for (const t of allTasks) {
           if (t.startedAt && t.stoppedAt) {
             const taskTime = Math.floor(
-              (t.stoppedAt.getTime() - t.startedAt.getTime()) / 60000
+              (t.stoppedAt.getTime() - t.startedAt.getTime()) / 60000,
             );
             totalWorkTime += taskTime;
           }

@@ -1,7 +1,12 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PlannerController = void 0;
 const client_1 = require("@prisma/client");
+const pdfkit_1 = __importDefault(require("pdfkit"));
+const exceljs_1 = __importDefault(require("exceljs"));
 class PlannerController {
     constructor(prisma) {
         this.prisma = prisma;
@@ -357,6 +362,15 @@ class PlannerController {
                             unitType: true,
                             unitBrand: true,
                             unitDescription: true,
+                        },
+                    },
+                    assignedGroupLeader: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            nrp: true,
+                            email: true,
                         },
                     },
                     mechanics: {
@@ -738,6 +752,43 @@ class PlannerController {
             });
         }
     }
+    async getGroupLeaders(req, res) {
+        try {
+            // Get all users with GROUP_LEADER_MEKANIK or GROUP_LEADER_TYRE posisi
+            const groupLeaders = await this.prisma.user.findMany({
+                where: {
+                    posisi: {
+                        in: ["GROUP_LEADER_MEKANIK", "GROUP_LEADER_TYRE"],
+                    },
+                },
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    nrp: true,
+                    phoneNumber: true,
+                    posisi: true,
+                },
+                orderBy: {
+                    firstName: "asc",
+                },
+            });
+            res.status(200).json({
+                success: true,
+                message: "Group Leaders retrieved successfully",
+                data: groupLeaders,
+            });
+        }
+        catch (error) {
+            console.error("Get group leaders error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
     async getMechanics(req, res) {
         try {
             // Get all users with MEKANIK posisi
@@ -921,7 +972,26 @@ class PlannerController {
     // Get mechanics report - shows mechanics with their activities, tasks, and time spent
     async getMechanicsReport(req, res) {
         try {
-            const { search } = req.query;
+            const { search, page = "1", limit = "10" } = req.query;
+            // Parse pagination parameters
+            const pageNumber = parseInt(page, 10) || 1;
+            const limitNumber = parseInt(limit, 10) || 10;
+            const skip = (pageNumber - 1) * limitNumber;
+            // Validate pagination
+            if (pageNumber < 1) {
+                res.status(400).json({
+                    success: false,
+                    message: "Page must be greater than 0",
+                });
+                return;
+            }
+            if (limitNumber < 1 || limitNumber > 100) {
+                res.status(400).json({
+                    success: false,
+                    message: "Limit must be between 1 and 100",
+                });
+                return;
+            }
             // Get all mechanics (users with MEKANIK position)
             // If search is provided, filter mechanics by name or NRP
             const mechanicWhere = {
@@ -953,6 +1023,10 @@ class PlannerController {
                     ];
                 }
             }
+            // Get total count for pagination
+            const totalMechanics = await this.prisma.user.count({
+                where: mechanicWhere,
+            });
             const mechanics = await this.prisma.user.findMany({
                 where: mechanicWhere,
                 select: {
@@ -965,14 +1039,20 @@ class PlannerController {
                 orderBy: {
                     firstName: "asc",
                 },
+                skip,
+                take: limitNumber,
             });
             // Build where clause for activity assignments
+            // IMPORTANT: Get ALL assignments for the paginated mechanics, regardless of search filter
+            // The search filter should only filter which mechanics to show, not which activities to count
             const assignmentWhere = {
                 mechanicId: {
                     in: mechanics.map((m) => m.id),
                 },
             };
             // Get all activity assignments for these mechanics with tasks
+            // Note: This query gets ALL assignments for mechanics in the list
+            // If a mechanic has no assignments, they will still appear in the report with 0 activities
             const activityAssignments = await this.prisma.activityMechanic.findMany({
                 where: assignmentWhere,
                 include: {
@@ -1000,24 +1080,234 @@ class PlannerController {
                     createdAt: "desc",
                 },
             });
-            // Additional filtering for search (unit code, activity name)
-            let filteredAssignments = activityAssignments;
-            if (search) {
-                const searchValueRaw = Array.isArray(search) ? search[0] : search;
-                const searchValue = typeof searchValueRaw === "string"
-                    ? searchValueRaw.toLowerCase()
-                    : String(searchValueRaw).toLowerCase();
-                filteredAssignments = activityAssignments.filter((assignment) => {
-                    const unitCode = assignment.activity.unit.unitCode.toLowerCase();
-                    const activityName = assignment.activity.activityName
-                        .toLowerCase()
-                        .replace(/_/g, " ");
-                    return (unitCode.includes(searchValue) || activityName.includes(searchValue));
+            // Debug: Log mechanics and their assignments count
+            if (process.env.NODE_ENV === "development") {
+                console.log(`[Mechanics Report] Found ${mechanics.length} mechanics`);
+                console.log(`[Mechanics Report] Found ${activityAssignments.length} total assignments`);
+                mechanics.forEach((m) => {
+                    const count = activityAssignments.filter((aa) => aa.mechanicId === m.id).length;
+                    console.log(`[Mechanics Report] ${m.firstName} ${m.lastName} (${m.nrp}): ${count} assignments`);
                 });
             }
-            // Format the response - group by mechanic
-            const report = mechanics.map((mechanic) => {
-                const assignments = filteredAssignments.filter((aa) => aa.mechanicId === mechanic.id);
+            // NOTE: We do NOT filter assignments by search here
+            // The search filter is only used to filter which mechanics to show (by name/NRP)
+            // All activities for the selected mechanics should be counted, regardless of unit code or activity name
+            // This ensures that mechanics show their correct total activities and work time
+            const filteredAssignments = activityAssignments;
+            // Helper function to calculate mechanic stats
+            const calculateMechanicStats = (mechanicList, assignmentsList) => {
+                return mechanicList.map((mechanic) => {
+                    const assignments = assignmentsList.filter((aa) => aa.mechanicId === mechanic.id);
+                    const activities = assignments.map((assignment) => {
+                        // Calculate time for each task
+                        const tasksWithTime = assignment.tasks.map((task) => {
+                            let durationSeconds = 0;
+                            let isActive = false;
+                            if (task.startedAt && task.stoppedAt) {
+                                // Task completed
+                                durationSeconds = Math.floor((task.stoppedAt.getTime() - task.startedAt.getTime()) / 1000);
+                            }
+                            else if (task.startedAt && !task.stoppedAt) {
+                                // Task in progress
+                                const now = new Date();
+                                durationSeconds = Math.floor((now.getTime() - task.startedAt.getTime()) / 1000);
+                                isActive = true;
+                            }
+                            const hours = Math.floor(durationSeconds / 3600);
+                            const minutes = Math.floor((durationSeconds % 3600) / 60);
+                            const seconds = durationSeconds % 60;
+                            const durationFormatted = this.formatDuration(hours, minutes, seconds, isActive);
+                            return {
+                                id: task.id,
+                                taskName: task.taskName,
+                                order: task.order,
+                                startedAt: task.startedAt,
+                                stoppedAt: task.stoppedAt,
+                                durationSeconds,
+                                durationFormatted,
+                                isActive,
+                            };
+                        });
+                        // Calculate total time for this activity (sum of all tasks)
+                        const totalActivitySeconds = tasksWithTime.reduce((sum, task) => sum + task.durationSeconds, 0);
+                        const totalHours = Math.floor(totalActivitySeconds / 3600);
+                        const totalMinutes = Math.floor((totalActivitySeconds % 3600) / 60);
+                        const totalSeconds = totalActivitySeconds % 60;
+                        const totalActivityTimeFormatted = this.formatDuration(totalHours, totalMinutes, totalSeconds);
+                        return {
+                            id: assignment.id,
+                            activityId: assignment.activity.id,
+                            activityName: assignment.activity.activityName,
+                            unitCode: assignment.activity.unit.unitCode,
+                            unitType: assignment.activity.unit.unitType,
+                            unitBrand: assignment.activity.unit.unitBrand,
+                            status: assignment.status,
+                            startedAt: assignment.startedAt,
+                            stoppedAt: assignment.stoppedAt,
+                            createdAt: assignment.createdAt,
+                            tasks: tasksWithTime,
+                            totalActivitySeconds,
+                            totalActivityTimeFormatted,
+                        };
+                    });
+                    // Calculate total time across all activities for this mechanic
+                    const totalMechanicSeconds = activities.reduce((sum, activity) => sum + activity.totalActivitySeconds, 0);
+                    const totalMechanicHours = Math.floor(totalMechanicSeconds / 3600);
+                    const totalMechanicMinutes = Math.floor((totalMechanicSeconds % 3600) / 60);
+                    const totalMechanicSecs = totalMechanicSeconds % 60;
+                    const totalMechanicTimeFormatted = this.formatDuration(totalMechanicHours, totalMechanicMinutes, totalMechanicSecs);
+                    return {
+                        id: mechanic.id,
+                        firstName: mechanic.firstName,
+                        lastName: mechanic.lastName,
+                        nrp: mechanic.nrp,
+                        email: mechanic.email,
+                        activities,
+                        totalActivities: activities.length,
+                        totalMechanicSeconds,
+                        totalMechanicTimeFormatted,
+                    };
+                });
+            };
+            // Calculate aggregate statistics from ALL mechanics (not just paginated)
+            // Get all mechanics matching the filter (for aggregate stats)
+            const allMechanicsForStats = await this.prisma.user.findMany({
+                where: mechanicWhere,
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    nrp: true,
+                    email: true,
+                },
+            });
+            // Get all activity assignments for ALL mechanics (for aggregate stats)
+            const allAssignmentsForStats = await this.prisma.activityMechanic.findMany({
+                where: {
+                    mechanicId: {
+                        in: allMechanicsForStats.map((m) => m.id),
+                    },
+                },
+                include: {
+                    activity: {
+                        select: {
+                            id: true,
+                            activityName: true,
+                            unit: {
+                                select: {
+                                    id: true,
+                                    unitCode: true,
+                                    unitType: true,
+                                    unitBrand: true,
+                                },
+                            },
+                        },
+                    },
+                    tasks: {
+                        orderBy: {
+                            order: "asc",
+                        },
+                    },
+                },
+            });
+            // NOTE: Do NOT filter assignments by search for stats calculation
+            // The search filter is only used to filter which mechanics to show (by name/NRP)
+            // All activities for the selected mechanics should be counted for accurate stats
+            const allFilteredAssignmentsForStats = allAssignmentsForStats;
+            // Calculate aggregate stats from ALL mechanics
+            const allMechanicsStats = calculateMechanicStats(allMechanicsForStats, allFilteredAssignmentsForStats);
+            const aggregateStats = {
+                totalMechanics: allMechanicsStats.length,
+                totalActivities: allMechanicsStats.reduce((sum, m) => sum + m.totalActivities, 0),
+                totalWorkTime: allMechanicsStats.reduce((sum, m) => sum + m.totalMechanicSeconds, 0),
+            };
+            // Format the response - group by mechanic (only paginated mechanics)
+            const report = calculateMechanicStats(mechanics, filteredAssignments);
+            res.status(200).json({
+                success: true,
+                data: report,
+                total: totalMechanics,
+                page: pageNumber,
+                limit: limitNumber,
+                totalPages: Math.ceil(totalMechanics / limitNumber),
+                stats: aggregateStats, // Include aggregate stats across ALL mechanics
+            });
+        }
+        catch (error) {
+            console.error("Error fetching mechanics report:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to fetch mechanics report",
+                error: error.message,
+            });
+        }
+    }
+    // Get single mechanic report by ID
+    async getMechanicReportById(req, res) {
+        try {
+            const { mechanicId } = req.params;
+            const id = Array.isArray(mechanicId) ? mechanicId[0] : mechanicId;
+            if (!id) {
+                res.status(400).json({
+                    success: false,
+                    message: "Mechanic ID is required",
+                });
+                return;
+            }
+            // Get the mechanic
+            const mechanic = await this.prisma.user.findUnique({
+                where: {
+                    id,
+                    posisi: "MEKANIK",
+                },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    nrp: true,
+                    email: true,
+                },
+            });
+            if (!mechanic) {
+                res.status(404).json({
+                    success: false,
+                    message: "Mechanic not found",
+                });
+                return;
+            }
+            // Get all activity assignments for this mechanic
+            const activityAssignments = await this.prisma.activityMechanic.findMany({
+                where: {
+                    mechanicId: mechanic.id,
+                },
+                include: {
+                    activity: {
+                        select: {
+                            id: true,
+                            activityName: true,
+                            unit: {
+                                select: {
+                                    id: true,
+                                    unitCode: true,
+                                    unitType: true,
+                                    unitBrand: true,
+                                },
+                            },
+                        },
+                    },
+                    tasks: {
+                        orderBy: {
+                            order: "asc",
+                        },
+                    },
+                },
+                orderBy: {
+                    createdAt: "desc",
+                },
+            });
+            // Helper function to calculate mechanic stats (reuse from getMechanicsReport)
+            const calculateMechanicStats = (mechanicData, assignmentsList) => {
+                const assignments = assignmentsList.filter((aa) => aa.mechanicId === mechanicData.id);
                 const activities = assignments.map((assignment) => {
                     // Calculate time for each task
                     const tasksWithTime = assignment.tasks.map((task) => {
@@ -1077,28 +1367,318 @@ class PlannerController {
                 const totalMechanicSecs = totalMechanicSeconds % 60;
                 const totalMechanicTimeFormatted = this.formatDuration(totalMechanicHours, totalMechanicMinutes, totalMechanicSecs);
                 return {
-                    id: mechanic.id,
-                    firstName: mechanic.firstName,
-                    lastName: mechanic.lastName,
-                    nrp: mechanic.nrp,
-                    email: mechanic.email,
+                    id: mechanicData.id,
+                    firstName: mechanicData.firstName,
+                    lastName: mechanicData.lastName,
+                    nrp: mechanicData.nrp,
+                    email: mechanicData.email,
                     activities,
                     totalActivities: activities.length,
                     totalMechanicSeconds,
                     totalMechanicTimeFormatted,
                 };
-            });
+            };
+            // Calculate mechanic stats
+            const mechanicReport = calculateMechanicStats(mechanic, activityAssignments);
             res.status(200).json({
                 success: true,
-                data: report,
-                total: report.length,
+                data: mechanicReport,
             });
         }
         catch (error) {
-            console.error("Error fetching mechanics report:", error);
+            console.error("Error fetching mechanic report by ID:", error);
             res.status(500).json({
                 success: false,
-                message: "Failed to fetch mechanics report",
+                message: "Failed to fetch mechanic report",
+                error: error.message,
+            });
+        }
+    }
+    // Helper method to get mechanics report data (without pagination, for downloads)
+    async getMechanicsReportData(search) {
+        const mechanicWhere = {
+            posisi: "MEKANIK",
+        };
+        if (search) {
+            const searchValue = Array.isArray(search) ? search[0] : search;
+            if (searchValue &&
+                typeof searchValue === "string" &&
+                searchValue.trim() !== "") {
+                mechanicWhere.OR = [
+                    {
+                        firstName: {
+                            contains: searchValue,
+                            mode: "insensitive",
+                        },
+                    },
+                    {
+                        lastName: {
+                            contains: searchValue,
+                            mode: "insensitive",
+                        },
+                    },
+                    {
+                        nrp: {
+                            equals: parseInt(searchValue) || -1,
+                        },
+                    },
+                ];
+            }
+        }
+        const mechanics = await this.prisma.user.findMany({
+            where: mechanicWhere,
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                nrp: true,
+                email: true,
+            },
+            orderBy: {
+                firstName: "asc",
+            },
+        });
+        const assignmentWhere = {
+            mechanicId: {
+                in: mechanics.map((m) => m.id),
+            },
+        };
+        const activityAssignments = await this.prisma.activityMechanic.findMany({
+            where: assignmentWhere,
+            include: {
+                activity: {
+                    select: {
+                        id: true,
+                        activityName: true,
+                        unit: {
+                            select: {
+                                id: true,
+                                unitCode: true,
+                                unitType: true,
+                                unitBrand: true,
+                            },
+                        },
+                    },
+                },
+                tasks: {
+                    orderBy: {
+                        order: "asc",
+                    },
+                },
+            },
+            orderBy: {
+                createdAt: "desc",
+            },
+        });
+        let filteredAssignments = activityAssignments;
+        if (search) {
+            const searchValueRaw = Array.isArray(search) ? search[0] : search;
+            const searchValue = typeof searchValueRaw === "string"
+                ? searchValueRaw.toLowerCase()
+                : String(searchValueRaw).toLowerCase();
+            filteredAssignments = activityAssignments.filter((assignment) => {
+                const unitCode = assignment.activity.unit.unitCode.toLowerCase();
+                const activityName = assignment.activity.activityName
+                    .toLowerCase()
+                    .replace(/_/g, " ");
+                return (unitCode.includes(searchValue) || activityName.includes(searchValue));
+            });
+        }
+        const report = mechanics.map((mechanic) => {
+            const assignments = filteredAssignments.filter((aa) => aa.mechanicId === mechanic.id);
+            const activities = assignments.map((assignment) => {
+                const tasksWithTime = assignment.tasks.map((task) => {
+                    let durationSeconds = 0;
+                    let isActive = false;
+                    if (task.startedAt && task.stoppedAt) {
+                        durationSeconds = Math.floor((task.stoppedAt.getTime() - task.startedAt.getTime()) / 1000);
+                    }
+                    else if (task.startedAt && !task.stoppedAt) {
+                        const now = new Date();
+                        durationSeconds = Math.floor((now.getTime() - task.startedAt.getTime()) / 1000);
+                        isActive = true;
+                    }
+                    const hours = Math.floor(durationSeconds / 3600);
+                    const minutes = Math.floor((durationSeconds % 3600) / 60);
+                    const seconds = durationSeconds % 60;
+                    const durationFormatted = this.formatDuration(hours, minutes, seconds, isActive);
+                    return {
+                        id: task.id,
+                        taskName: task.taskName,
+                        order: task.order,
+                        startedAt: task.startedAt,
+                        stoppedAt: task.stoppedAt,
+                        durationSeconds,
+                        durationFormatted,
+                        isActive,
+                    };
+                });
+                const totalActivitySeconds = tasksWithTime.reduce((sum, task) => sum + task.durationSeconds, 0);
+                const totalHours = Math.floor(totalActivitySeconds / 3600);
+                const totalMinutes = Math.floor((totalActivitySeconds % 3600) / 60);
+                const totalSeconds = totalActivitySeconds % 60;
+                const totalActivityTimeFormatted = this.formatDuration(totalHours, totalMinutes, totalSeconds);
+                return {
+                    id: assignment.id,
+                    activityId: assignment.activity.id,
+                    activityName: assignment.activity.activityName,
+                    unitCode: assignment.activity.unit.unitCode,
+                    unitType: assignment.activity.unit.unitType,
+                    unitBrand: assignment.activity.unit.unitBrand,
+                    status: assignment.status,
+                    startedAt: assignment.startedAt,
+                    stoppedAt: assignment.stoppedAt,
+                    createdAt: assignment.createdAt,
+                    tasks: tasksWithTime,
+                    totalActivitySeconds,
+                    totalActivityTimeFormatted,
+                };
+            });
+            const totalMechanicSeconds = activities.reduce((sum, activity) => sum + activity.totalActivitySeconds, 0);
+            const totalMechanicHours = Math.floor(totalMechanicSeconds / 3600);
+            const totalMechanicMinutes = Math.floor((totalMechanicSeconds % 3600) / 60);
+            const totalMechanicSecs = totalMechanicSeconds % 60;
+            const totalMechanicTimeFormatted = this.formatDuration(totalMechanicHours, totalMechanicMinutes, totalMechanicSecs);
+            return {
+                id: mechanic.id,
+                firstName: mechanic.firstName,
+                lastName: mechanic.lastName,
+                nrp: mechanic.nrp,
+                email: mechanic.email,
+                activities,
+                totalActivities: activities.length,
+                totalMechanicSeconds,
+                totalMechanicTimeFormatted,
+            };
+        });
+        return report;
+    }
+    async downloadMechanicsReportPDF(req, res) {
+        try {
+            const { search } = req.query;
+            const searchValue = search ? (Array.isArray(search) ? search[0] : search) : undefined;
+            const report = await this.getMechanicsReportData(searchValue);
+            const doc = new pdfkit_1.default({ margin: 50 });
+            res.setHeader("Content-Type", "application/pdf");
+            res.setHeader("Content-Disposition", `attachment; filename=mechanics-report-${new Date().toISOString().split("T")[0]}.pdf`);
+            doc.pipe(res);
+            // Header
+            doc.fontSize(20).text("Mechanics Performance Report", { align: "center" });
+            doc.moveDown();
+            doc.fontSize(12).text(`Generated: ${new Date().toLocaleString()}`, { align: "center" });
+            doc.moveDown(2);
+            // Report data
+            report.forEach((mechanic, index) => {
+                if (index > 0) {
+                    doc.addPage();
+                }
+                doc.fontSize(16).text(`${mechanic.firstName} ${mechanic.lastName}`, { underline: true });
+                doc.fontSize(10).text(`NRP: ${mechanic.nrp} | Email: ${mechanic.email}`);
+                doc.moveDown();
+                doc.fontSize(12).text(`Total Activities: ${mechanic.totalActivities}`);
+                doc.text(`Total Work Time: ${mechanic.totalMechanicTimeFormatted}`);
+                doc.moveDown();
+                if (mechanic.activities.length > 0) {
+                    doc.fontSize(12).text("Activities:", { underline: true });
+                    doc.moveDown(0.5);
+                    mechanic.activities.forEach((activity) => {
+                        doc.fontSize(10).text(`• ${activity.activityName.replace(/_/g, " ")} - ${activity.unitCode} (${activity.unitType} ${activity.unitBrand})`, { indent: 20 });
+                        doc.text(`  Status: ${activity.status} | Time: ${activity.totalActivityTimeFormatted}`, {
+                            indent: 20,
+                        });
+                        doc.moveDown(0.3);
+                    });
+                }
+                else {
+                    doc.fontSize(10).text("No activities assigned", { indent: 20 });
+                }
+            });
+            doc.end();
+        }
+        catch (error) {
+            console.error("Error generating PDF:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to generate PDF report",
+                error: error.message,
+            });
+        }
+    }
+    async downloadMechanicsReportExcel(req, res) {
+        try {
+            const { search } = req.query;
+            const searchValue = search ? (Array.isArray(search) ? search[0] : search) : undefined;
+            const report = await this.getMechanicsReportData(searchValue);
+            const workbook = new exceljs_1.default.Workbook();
+            const worksheet = workbook.addWorksheet("Mechanics Report");
+            // Set column headers
+            worksheet.columns = [
+                { header: "Mechanic Name", key: "mechanicName", width: 25 },
+                { header: "NRP", key: "nrp", width: 15 },
+                { header: "Email", key: "email", width: 30 },
+                { header: "Total Activities", key: "totalActivities", width: 18 },
+                { header: "Total Work Time", key: "totalWorkTime", width: 18 },
+                { header: "Activity Name", key: "activityName", width: 30 },
+                { header: "Unit Code", key: "unitCode", width: 15 },
+                { header: "Unit Type", key: "unitType", width: 15 },
+                { header: "Unit Brand", key: "unitBrand", width: 15 },
+                { header: "Activity Status", key: "activityStatus", width: 18 },
+                { header: "Activity Time", key: "activityTime", width: 18 },
+            ];
+            // Style header row
+            worksheet.getRow(1).font = { bold: true };
+            worksheet.getRow(1).fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FF4472C4" },
+            };
+            worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+            // Add data rows
+            report.forEach((mechanic) => {
+                if (mechanic.activities.length === 0) {
+                    worksheet.addRow({
+                        mechanicName: `${mechanic.firstName} ${mechanic.lastName}`,
+                        nrp: mechanic.nrp,
+                        email: mechanic.email,
+                        totalActivities: mechanic.totalActivities,
+                        totalWorkTime: mechanic.totalMechanicTimeFormatted,
+                        activityName: "No activities",
+                        unitCode: "-",
+                        unitType: "-",
+                        unitBrand: "-",
+                        activityStatus: "-",
+                        activityTime: "-",
+                    });
+                }
+                else {
+                    mechanic.activities.forEach((activity, index) => {
+                        worksheet.addRow({
+                            mechanicName: index === 0 ? `${mechanic.firstName} ${mechanic.lastName}` : "",
+                            nrp: index === 0 ? mechanic.nrp : "",
+                            email: index === 0 ? mechanic.email : "",
+                            totalActivities: index === 0 ? mechanic.totalActivities : "",
+                            totalWorkTime: index === 0 ? mechanic.totalMechanicTimeFormatted : "",
+                            activityName: activity.activityName.replace(/_/g, " "),
+                            unitCode: activity.unitCode,
+                            unitType: activity.unitType,
+                            unitBrand: activity.unitBrand,
+                            activityStatus: activity.status,
+                            activityTime: activity.totalActivityTimeFormatted,
+                        });
+                    });
+                }
+            });
+            // Set response headers
+            res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            res.setHeader("Content-Disposition", `attachment; filename=mechanics-report-${new Date().toISOString().split("T")[0]}.xlsx`);
+            await workbook.xlsx.write(res);
+            res.end();
+        }
+        catch (error) {
+            console.error("Error generating Excel:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to generate Excel report",
                 error: error.message,
             });
         }
@@ -1422,6 +2002,148 @@ class PlannerController {
                 success: false,
                 message: "Failed to fetch mechanics analytics",
                 error: error.message,
+            });
+        }
+    }
+    // Assign Group Leader to activity
+    async assignGroupLeader(req, res) {
+        try {
+            const userId = req.user?.id;
+            if (!userId) {
+                res.status(401).json({
+                    success: false,
+                    message: "Authentication required",
+                });
+                return;
+            }
+            const { id } = req.params;
+            const activityId = Array.isArray(id) ? id[0] : id;
+            const { groupLeaderId } = req.body;
+            if (!groupLeaderId) {
+                res.status(400).json({
+                    success: false,
+                    message: "groupLeaderId is required",
+                });
+                return;
+            }
+            // Check if activity exists
+            const activity = await this.prisma.mechanicActivity.findUnique({
+                where: { id: activityId },
+                include: {
+                    unit: {
+                        select: {
+                            id: true,
+                            unitCode: true,
+                            unitType: true,
+                            unitBrand: true,
+                            unitDescription: true,
+                        },
+                    },
+                    mechanics: {
+                        include: {
+                            mechanic: {
+                                select: {
+                                    id: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    nrp: true,
+                                    email: true,
+                                },
+                            },
+                            tasks: {
+                                orderBy: {
+                                    order: "asc",
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            if (!activity) {
+                res.status(404).json({
+                    success: false,
+                    message: "Activity not found",
+                });
+                return;
+            }
+            // Check if group leader exists and has valid posisi
+            const groupLeader = await this.prisma.user.findUnique({
+                where: { id: groupLeaderId },
+            });
+            if (!groupLeader) {
+                res.status(404).json({
+                    success: false,
+                    message: "Group Leader not found",
+                });
+                return;
+            }
+            // Validate group leader posisi
+            if (groupLeader.posisi !== "GROUP_LEADER_MEKANIK" &&
+                groupLeader.posisi !== "GROUP_LEADER_TYRE") {
+                res.status(400).json({
+                    success: false,
+                    message: "User is not a Group Leader",
+                });
+                return;
+            }
+            // Update activity with assigned group leader
+            const updatedActivity = await this.prisma.mechanicActivity.update({
+                where: { id: activityId },
+                data: {
+                    assignedGroupLeaderId: groupLeaderId,
+                    updatedBy: userId,
+                },
+                include: {
+                    unit: {
+                        select: {
+                            id: true,
+                            unitCode: true,
+                            unitType: true,
+                            unitBrand: true,
+                            unitDescription: true,
+                        },
+                    },
+                    assignedGroupLeader: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            nrp: true,
+                            email: true,
+                        },
+                    },
+                    mechanics: {
+                        include: {
+                            mechanic: {
+                                select: {
+                                    id: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    nrp: true,
+                                    email: true,
+                                },
+                            },
+                            tasks: {
+                                orderBy: {
+                                    order: "asc",
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            res.status(200).json({
+                success: true,
+                message: "Group Leader assigned successfully",
+                data: updatedActivity,
+            });
+        }
+        catch (error) {
+            console.error("Assign group leader error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
             });
         }
     }

@@ -162,6 +162,22 @@ class GroupLeaderController {
                 });
                 return;
             }
+            // Verify that the current user is assigned as Group Leader for this activity
+            // Admin and SuperAdmin can assign mechanics to any activity
+            const userPosisi = req.user?.posisi;
+            const userRole = req.user?.role;
+            if ((userPosisi === "GROUP_LEADER_MEKANIK" ||
+                userPosisi === "GROUP_LEADER_TYRE") &&
+                userRole !== "ADMIN" &&
+                userRole !== "SUPERADMIN") {
+                if (activity.assignedGroupLeaderId !== userId) {
+                    res.status(403).json({
+                        success: false,
+                        message: "You are not assigned as Group Leader for this activity",
+                    });
+                    return;
+                }
+            }
             // Check if mechanics already assigned
             const existingAssignments = await this.prisma.activityMechanic.findMany({
                 where: { activityId },
@@ -231,7 +247,9 @@ class GroupLeaderController {
                 const mechanicsWithUnfinished = unfinishedActivities.map((ua) => {
                     const mechanic = mechanics.find((m) => m.id === ua.mechanicId);
                     return {
-                        name: mechanic ? `${mechanic.firstName} ${mechanic.lastName}` : "Unknown",
+                        name: mechanic
+                            ? `${mechanic.firstName} ${mechanic.lastName}`
+                            : "Unknown",
                         activity: ua.activity.unit.unitCode,
                         status: ua.status,
                     };
@@ -396,14 +414,27 @@ class GroupLeaderController {
                 });
                 return;
             }
+            // Get current user ID
+            const userId = req.user?.id;
+            const userPosisi = req.user?.posisi;
             // Build where clause
             const where = {};
+            // Filter by assigned Group Leader - only show activities assigned to current user
+            // Admin and SuperAdmin can see all activities
+            if (userPosisi === "GROUP_LEADER_MEKANIK" ||
+                userPosisi === "GROUP_LEADER_TYRE") {
+                if (userId) {
+                    where.assignedGroupLeaderId = userId;
+                }
+            }
             if (status) {
                 const statusValue = Array.isArray(status) ? status[0] : status;
                 where.activityStatus = statusValue;
             }
             if (activityName) {
-                const nameValue = Array.isArray(activityName) ? activityName[0] : activityName;
+                const nameValue = Array.isArray(activityName)
+                    ? activityName[0]
+                    : activityName;
                 where.activityName = nameValue;
             }
             if (unitId) {
@@ -411,7 +442,9 @@ class GroupLeaderController {
                 where.unitId = unitValue;
             }
             if (mechanicId) {
-                const mechanicValue = Array.isArray(mechanicId) ? mechanicId[0] : mechanicId;
+                const mechanicValue = Array.isArray(mechanicId)
+                    ? mechanicId[0]
+                    : mechanicId;
                 where.mechanics = {
                     some: {
                         mechanicId: mechanicValue,
@@ -422,6 +455,12 @@ class GroupLeaderController {
             if (search) {
                 const searchValue = Array.isArray(search) ? search[0] : search;
                 where.OR = [
+                    {
+                        id: {
+                            contains: searchValue,
+                            mode: "insensitive",
+                        },
+                    },
                     {
                         description: {
                             contains: searchValue,
@@ -467,6 +506,15 @@ class GroupLeaderController {
                             unitDescription: true,
                         },
                     },
+                    assignedGroupLeader: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            nrp: true,
+                            email: true,
+                        },
+                    },
                     mechanics: {
                         include: {
                             mechanic: {
@@ -487,6 +535,24 @@ class GroupLeaderController {
                     },
                 },
             });
+            // Fetch creator information for all activities
+            const creatorIds = [...new Set(activities.map((a) => a.createdBy))];
+            const creators = await this.prisma.user.findMany({
+                where: {
+                    id: {
+                        in: creatorIds,
+                    },
+                },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    nrp: true,
+                    email: true,
+                    posisi: true,
+                },
+            });
+            const creatorMap = new Map(creators.map((c) => [c.id, c]));
             // Calculate task durations and format response
             const activitiesWithTaskTime = activities.map((activity) => {
                 const mechanicsWithTaskTime = activity.mechanics.map((mechanic) => {
@@ -524,7 +590,7 @@ class GroupLeaderController {
                     // Calculate total work time for this mechanic
                     const totalTaskTimeSeconds = tasksWithDuration.reduce((sum, task) => {
                         // Calculate seconds from durationMinutes
-                        return sum + (task.durationMinutes * 60);
+                        return sum + task.durationMinutes * 60;
                     }, 0);
                     const totalHours = Math.floor(totalTaskTimeSeconds / 3600);
                     const totalMinutes = Math.floor((totalTaskTimeSeconds % 3600) / 60);
@@ -538,9 +604,31 @@ class GroupLeaderController {
                         totalTaskTimeFormatted: totalTimeFormatted,
                     };
                 });
+                // Get assigned GL from activity relation
+                const assignedGL = activity.assignedGroupLeader
+                    ? {
+                        id: activity.assignedGroupLeader.id,
+                        firstName: activity.assignedGroupLeader.firstName,
+                        lastName: activity.assignedGroupLeader.lastName,
+                        nrp: activity.assignedGroupLeader.nrp,
+                        email: activity.assignedGroupLeader.email,
+                    }
+                    : null;
+                // Get creator info
+                const creator = creatorMap.get(activity.createdBy);
                 return {
                     ...activity,
                     mechanics: mechanicsWithTaskTime,
+                    creator: creator
+                        ? {
+                            id: creator.id,
+                            firstName: creator.firstName,
+                            lastName: creator.lastName,
+                            nrp: creator.nrp,
+                            email: creator.email,
+                        }
+                        : null,
+                    assignedGL,
                 };
             });
             const totalPages = Math.ceil(totalCount / limitNumber);
@@ -612,6 +700,17 @@ class GroupLeaderController {
                 });
                 return;
             }
+            // Fetch creator information
+            const creator = await this.prisma.user.findUnique({
+                where: { id: activity.createdBy },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    nrp: true,
+                    email: true,
+                },
+            });
             // Calculate task durations and format response
             const mechanicsWithTaskTime = activity.mechanics.map((mechanic) => {
                 const tasksWithDuration = mechanic.tasks.map((task) => {
@@ -758,6 +857,649 @@ class GroupLeaderController {
         }
         catch (error) {
             console.error("Update activity error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    // Start activity for ALL assigned mechanics at once
+    async startActivityForAllMechanics(req, res) {
+        try {
+            const userId = req.user?.id;
+            if (!userId) {
+                res.status(401).json({
+                    success: false,
+                    message: "Authentication required",
+                });
+                return;
+            }
+            const { id } = req.params;
+            const activityId = Array.isArray(id) ? id[0] : id;
+            // Check if activity exists
+            const activity = await this.prisma.mechanicActivity.findUnique({
+                where: { id: activityId },
+                include: {
+                    mechanics: {
+                        include: {
+                            tasks: {
+                                orderBy: {
+                                    order: "asc",
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            if (!activity) {
+                res.status(404).json({
+                    success: false,
+                    message: "Activity not found",
+                });
+                return;
+            }
+            // Check if any mechanics are assigned
+            if (activity.mechanics.length === 0) {
+                res.status(400).json({
+                    success: false,
+                    message: "No mechanics assigned to this activity",
+                });
+                return;
+            }
+            const startTime = new Date();
+            const activityName = activity.activityName;
+            const supportsTasks = this.supportsTasks(activityName);
+            const taskSequence = supportsTasks
+                ? this.getTaskSequence(activityName)
+                : [];
+            // Start all mechanics' activities
+            const updatePromises = activity.mechanics.map(async (mechanic) => {
+                // Skip if already started or completed
+                if (mechanic.status === "IN_PROGRESS" ||
+                    mechanic.status === "COMPLETED") {
+                    return null;
+                }
+                // Handle tasks if activity supports tasks
+                if (supportsTasks && taskSequence.length > 0) {
+                    if (mechanic.tasks.length === 0) {
+                        // Create all tasks, start first one
+                        const tasksToCreate = taskSequence.map((task, index) => ({
+                            activityMechanicId: mechanic.id,
+                            taskName: task.taskName,
+                            order: task.order,
+                            startedAt: index === 0 ? startTime : null,
+                        }));
+                        await this.prisma.task.createMany({
+                            data: tasksToCreate,
+                        });
+                    }
+                    else {
+                        // Start first task if not started
+                        const firstTask = taskSequence[0];
+                        const existingFirstTask = mechanic.tasks.find((t) => t.taskName === firstTask.taskName);
+                        if (existingFirstTask && !existingFirstTask.startedAt) {
+                            await this.prisma.task.update({
+                                where: { id: existingFirstTask.id },
+                                data: { startedAt: startTime },
+                            });
+                        }
+                    }
+                }
+                // Update mechanic assignment status
+                return this.prisma.activityMechanic.update({
+                    where: { id: mechanic.id },
+                    data: {
+                        status: "IN_PROGRESS",
+                        startedAt: startTime,
+                    },
+                });
+            });
+            await Promise.all(updatePromises);
+            // Update main activity status to IN_PROGRESS
+            await this.prisma.mechanicActivity.update({
+                where: { id: activityId },
+                data: {
+                    activityStatus: "IN_PROGRESS",
+                },
+            });
+            // Fetch updated activity
+            const updatedActivity = await this.prisma.mechanicActivity.findUnique({
+                where: { id: activityId },
+                include: {
+                    unit: {
+                        select: {
+                            id: true,
+                            unitCode: true,
+                            unitType: true,
+                            unitBrand: true,
+                            unitDescription: true,
+                        },
+                    },
+                    mechanics: {
+                        include: {
+                            mechanic: {
+                                select: {
+                                    id: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    nrp: true,
+                                    email: true,
+                                },
+                            },
+                            tasks: {
+                                orderBy: {
+                                    order: "asc",
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            res.status(200).json({
+                success: true,
+                message: "Activity started for all mechanics successfully",
+                data: updatedActivity,
+            });
+        }
+        catch (error) {
+            console.error("Start activity for all mechanics error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    // Stop activity for ALL assigned mechanics at once
+    async stopActivityForAllMechanics(req, res) {
+        try {
+            const userId = req.user?.id;
+            if (!userId) {
+                res.status(401).json({
+                    success: false,
+                    message: "Authentication required",
+                });
+                return;
+            }
+            const { id } = req.params;
+            const activityId = Array.isArray(id) ? id[0] : id;
+            // Check if activity exists
+            const activity = await this.prisma.mechanicActivity.findUnique({
+                where: { id: activityId },
+                include: {
+                    mechanics: {
+                        include: {
+                            tasks: true,
+                        },
+                    },
+                },
+            });
+            if (!activity) {
+                res.status(404).json({
+                    success: false,
+                    message: "Activity not found",
+                });
+                return;
+            }
+            // Check if any mechanics are assigned
+            if (activity.mechanics.length === 0) {
+                res.status(400).json({
+                    success: false,
+                    message: "No mechanics assigned to this activity",
+                });
+                return;
+            }
+            const stopTime = new Date();
+            // Stop all mechanics' activities and calculate work time
+            const updatePromises = activity.mechanics.map(async (mechanic) => {
+                // Skip if already completed
+                if (mechanic.status === "COMPLETED" || mechanic.stoppedAt) {
+                    return null;
+                }
+                // Skip if not started
+                if (!mechanic.startedAt) {
+                    return null;
+                }
+                // Calculate total work time from tasks if available
+                let totalWorkTime = 0;
+                if (mechanic.tasks.length > 0) {
+                    // Stop all running tasks first
+                    const stopTaskPromises = mechanic.tasks.map(async (task) => {
+                        if (task.startedAt && !task.stoppedAt) {
+                            return this.prisma.task.update({
+                                where: { id: task.id },
+                                data: { stoppedAt: stopTime },
+                            });
+                        }
+                        return null;
+                    });
+                    await Promise.all(stopTaskPromises);
+                    // Calculate total time from all tasks
+                    const allTasks = await this.prisma.task.findMany({
+                        where: { activityMechanicId: mechanic.id },
+                    });
+                    for (const task of allTasks) {
+                        if (task.startedAt) {
+                            const taskStopTime = task.stoppedAt || stopTime;
+                            const taskDuration = Math.floor((taskStopTime.getTime() - task.startedAt.getTime()) / 60000);
+                            totalWorkTime += taskDuration;
+                        }
+                    }
+                }
+                else {
+                    // Calculate from assignment start/stop time
+                    const baseTime = stopTime.getTime() - mechanic.startedAt.getTime();
+                    totalWorkTime = Math.floor(baseTime / 60000);
+                    if (mechanic.pausedAt) {
+                        const pauseTime = Math.floor((stopTime.getTime() - mechanic.pausedAt.getTime()) / 60000);
+                        totalWorkTime -= pauseTime;
+                    }
+                }
+                // Update mechanic assignment
+                return this.prisma.activityMechanic.update({
+                    where: { id: mechanic.id },
+                    data: {
+                        status: "COMPLETED",
+                        stoppedAt: stopTime,
+                        totalWorkTime: totalWorkTime > 0 ? totalWorkTime : 0,
+                    },
+                });
+            });
+            await Promise.all(updatePromises);
+            // Update main activity status to COMPLETED
+            await this.prisma.mechanicActivity.update({
+                where: { id: activityId },
+                data: {
+                    activityStatus: "COMPLETED",
+                },
+            });
+            // Fetch updated activity
+            const updatedActivity = await this.prisma.mechanicActivity.findUnique({
+                where: { id: activityId },
+                include: {
+                    unit: {
+                        select: {
+                            id: true,
+                            unitCode: true,
+                            unitType: true,
+                            unitBrand: true,
+                            unitDescription: true,
+                        },
+                    },
+                    mechanics: {
+                        include: {
+                            mechanic: {
+                                select: {
+                                    id: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    nrp: true,
+                                    email: true,
+                                },
+                            },
+                            tasks: {
+                                orderBy: {
+                                    order: "asc",
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            res.status(200).json({
+                success: true,
+                message: "Activity stopped for all mechanics successfully",
+                data: updatedActivity,
+            });
+        }
+        catch (error) {
+            console.error("Stop activity for all mechanics error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    // Start task for a specific mechanic (group leader can control any mechanic's tasks)
+    async startMechanicTask(req, res) {
+        try {
+            const userId = req.user?.id;
+            const userPosisi = req.user?.posisi;
+            if (!userId) {
+                res.status(401).json({
+                    success: false,
+                    message: "Authentication required",
+                });
+                return;
+            }
+            // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can start tasks
+            if (userPosisi !== "GROUP_LEADER_MEKANIK" &&
+                userPosisi !== "GROUP_LEADER_TYRE" &&
+                req.user?.role !== "ADMIN" &&
+                req.user?.role !== "SUPERADMIN") {
+                res.status(403).json({
+                    success: false,
+                    message: "Only Group Leaders can start tasks",
+                });
+                return;
+            }
+            const { activityId, mechanicId } = req.params;
+            const { taskName } = req.body;
+            const id = Array.isArray(activityId) ? activityId[0] : activityId;
+            const mechId = Array.isArray(mechanicId) ? mechanicId[0] : mechanicId;
+            // Check if activity assignment exists for the specified mechanic
+            const assignment = await this.prisma.activityMechanic.findFirst({
+                where: {
+                    activityId: id,
+                    mechanicId: mechId,
+                },
+                include: {
+                    activity: true,
+                    tasks: {
+                        orderBy: {
+                            order: "asc",
+                        },
+                    },
+                },
+            });
+            if (!assignment) {
+                res.status(404).json({
+                    success: false,
+                    message: "Activity assignment not found for this mechanic",
+                });
+                return;
+            }
+            // Check if activity supports tasks
+            const activityName = assignment.activity.activityName;
+            if (!this.supportsTasks(activityName)) {
+                res.status(400).json({
+                    success: false,
+                    message: "Tasks are not available for this activity type",
+                });
+                return;
+            }
+            // Validate taskName against activity's task sequence
+            const taskSequence = this.getTaskSequence(activityName);
+            const validTaskNames = taskSequence.map((t) => t.taskName);
+            if (!taskName || !validTaskNames.includes(taskName)) {
+                res.status(400).json({
+                    success: false,
+                    message: `Invalid taskName for ${activityName}. Valid names are: ${validTaskNames.join(", ")}`,
+                });
+                return;
+            }
+            // Check if activity is started
+            if (!assignment.startedAt || assignment.status !== "IN_PROGRESS") {
+                res.status(400).json({
+                    success: false,
+                    message: "Activity must be started before starting a task",
+                });
+                return;
+            }
+            // Build task order from sequence
+            const taskOrder = {};
+            taskSequence.forEach((task) => {
+                taskOrder[task.taskName] = task.order;
+            });
+            const currentTaskOrder = taskOrder[taskName];
+            // Check if previous tasks are completed
+            for (let i = 1; i < currentTaskOrder; i++) {
+                const prevTaskName = Object.keys(taskOrder).find((key) => taskOrder[key] === i);
+                const prevTask = assignment.tasks.find((t) => t.taskName === prevTaskName);
+                if (!prevTask || !prevTask.stoppedAt) {
+                    res.status(400).json({
+                        success: false,
+                        message: `Please complete ${prevTaskName?.replace(/_/g, " ")} first`,
+                    });
+                    return;
+                }
+            }
+            // Check if task already exists and started
+            const existingTask = assignment.tasks.find((t) => t.taskName === taskName);
+            if (existingTask && existingTask.startedAt) {
+                res.status(400).json({
+                    success: false,
+                    message: "Task already started",
+                });
+                return;
+            }
+            const startTime = new Date();
+            // Create or update task
+            let task;
+            if (existingTask) {
+                task = await this.prisma.task.update({
+                    where: { id: existingTask.id },
+                    data: {
+                        startedAt: startTime,
+                    },
+                });
+            }
+            else {
+                task = await this.prisma.task.create({
+                    data: {
+                        activityMechanicId: assignment.id,
+                        taskName: taskName,
+                        order: currentTaskOrder,
+                        startedAt: startTime,
+                    },
+                });
+            }
+            // Get updated assignment with tasks
+            const updated = await this.prisma.activityMechanic.findUnique({
+                where: { id: assignment.id },
+                include: {
+                    mechanic: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            nrp: true,
+                            email: true,
+                        },
+                    },
+                    activity: {
+                        include: {
+                            unit: {
+                                select: {
+                                    id: true,
+                                    unitCode: true,
+                                    unitType: true,
+                                    unitBrand: true,
+                                },
+                            },
+                        },
+                    },
+                    tasks: {
+                        orderBy: {
+                            order: "asc",
+                        },
+                    },
+                },
+            });
+            res.status(200).json({
+                success: true,
+                message: "Task started successfully",
+                data: updated,
+            });
+        }
+        catch (error) {
+            console.error("Start mechanic task error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Internal server error",
+                error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    // Stop task for a specific mechanic (group leader can control any mechanic's tasks)
+    async stopMechanicTask(req, res) {
+        try {
+            const userId = req.user?.id;
+            const userPosisi = req.user?.posisi;
+            if (!userId) {
+                res.status(401).json({
+                    success: false,
+                    message: "Authentication required",
+                });
+                return;
+            }
+            // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can stop tasks
+            if (userPosisi !== "GROUP_LEADER_MEKANIK" &&
+                userPosisi !== "GROUP_LEADER_TYRE" &&
+                req.user?.role !== "ADMIN" &&
+                req.user?.role !== "SUPERADMIN") {
+                res.status(403).json({
+                    success: false,
+                    message: "Only Group Leaders can stop tasks",
+                });
+                return;
+            }
+            const { activityId, mechanicId } = req.params;
+            const { taskName } = req.body;
+            const id = Array.isArray(activityId) ? activityId[0] : activityId;
+            const mechId = Array.isArray(mechanicId) ? mechanicId[0] : mechanicId;
+            // Check if activity assignment exists for the specified mechanic
+            const assignment = await this.prisma.activityMechanic.findFirst({
+                where: {
+                    activityId: id,
+                    mechanicId: mechId,
+                },
+                include: {
+                    activity: true,
+                    tasks: true,
+                },
+            });
+            if (!assignment) {
+                res.status(404).json({
+                    success: false,
+                    message: "Activity assignment not found for this mechanic",
+                });
+                return;
+            }
+            // Check if activity supports tasks
+            const activityName = assignment.activity.activityName;
+            if (!this.supportsTasks(activityName)) {
+                res.status(400).json({
+                    success: false,
+                    message: "Tasks are not available for this activity type",
+                });
+                return;
+            }
+            // Validate taskName against activity's task sequence
+            const taskSequence = this.getTaskSequence(activityName);
+            const validTaskNames = taskSequence.map((t) => t.taskName);
+            if (!taskName || !validTaskNames.includes(taskName)) {
+                res.status(400).json({
+                    success: false,
+                    message: `Invalid taskName for ${activityName}. Valid names are: ${validTaskNames.join(", ")}`,
+                });
+                return;
+            }
+            // Find the task
+            const task = assignment.tasks.find((t) => t.taskName === taskName);
+            if (!task) {
+                res.status(404).json({
+                    success: false,
+                    message: "Task not found",
+                });
+                return;
+            }
+            // Check if task is started
+            if (!task.startedAt) {
+                res.status(400).json({
+                    success: false,
+                    message: "Task must be started before stopping",
+                });
+                return;
+            }
+            // Check if task is already stopped
+            if (task.stoppedAt) {
+                res.status(400).json({
+                    success: false,
+                    message: "Task already stopped",
+                });
+                return;
+            }
+            const stopTime = new Date();
+            // Stop the task
+            await this.prisma.task.update({
+                where: { id: task.id },
+                data: {
+                    stoppedAt: stopTime,
+                },
+            });
+            // Check if all tasks for this mechanic are completed
+            const allTasks = await this.prisma.task.findMany({
+                where: { activityMechanicId: assignment.id },
+                orderBy: {
+                    order: "asc",
+                },
+            });
+            // Check if all tasks are completed (all have startedAt and stoppedAt)
+            const allTasksCompleted = allTasks.length > 0 &&
+                allTasks.every((t) => t.startedAt && t.stoppedAt);
+            // If all tasks are completed, mark the mechanic assignment as COMPLETED
+            if (allTasksCompleted) {
+                // Calculate total work time from all tasks
+                let totalWorkTime = 0;
+                for (const t of allTasks) {
+                    if (t.startedAt) {
+                        const taskStopTime = t.stoppedAt || stopTime;
+                        const taskDuration = Math.floor((taskStopTime.getTime() - t.startedAt.getTime()) / 60000);
+                        totalWorkTime += taskDuration;
+                    }
+                }
+                await this.prisma.activityMechanic.update({
+                    where: { id: assignment.id },
+                    data: {
+                        status: "COMPLETED",
+                        stoppedAt: stopTime,
+                        totalWorkTime: totalWorkTime > 0 ? totalWorkTime : 0,
+                    },
+                });
+            }
+            // Get updated assignment with tasks
+            const updated = await this.prisma.activityMechanic.findUnique({
+                where: { id: assignment.id },
+                include: {
+                    mechanic: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            nrp: true,
+                            email: true,
+                        },
+                    },
+                    activity: {
+                        include: {
+                            unit: {
+                                select: {
+                                    id: true,
+                                    unitCode: true,
+                                    unitType: true,
+                                    unitBrand: true,
+                                },
+                            },
+                        },
+                    },
+                    tasks: {
+                        orderBy: {
+                            order: "asc",
+                        },
+                    },
+                },
+            });
+            res.status(200).json({
+                success: true,
+                message: "Task stopped successfully",
+                data: updated,
+            });
+        }
+        catch (error) {
+            console.error("Stop mechanic task error:", error);
             res.status(500).json({
                 success: false,
                 message: "Internal server error",

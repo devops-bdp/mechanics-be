@@ -210,7 +210,8 @@ class MechanicsController {
                         return assignment.tasks.some((task) => task.startedAt);
                     }
                     else {
-                        return assignment.status === "IN_PROGRESS" || assignment.status === "DELAYED";
+                        return (assignment.status === "IN_PROGRESS" ||
+                            assignment.status === "DELAYED");
                     }
                 });
                 if (hasInProgress) {
@@ -683,10 +684,20 @@ class MechanicsController {
     async startActivity(req, res) {
         try {
             const userId = req.user?.id;
+            const userPosisi = req.user?.posisi;
             if (!userId) {
                 res.status(401).json({
                     success: false,
                     message: "Authentication required",
+                });
+                return;
+            }
+            // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can start activities
+            if (userPosisi !== "GROUP_LEADER_MEKANIK" &&
+                userPosisi !== "GROUP_LEADER_TYRE") {
+                res.status(403).json({
+                    success: false,
+                    message: "Only Group Leaders can start activities",
                 });
                 return;
             }
@@ -1043,10 +1054,20 @@ class MechanicsController {
     async stopActivity(req, res) {
         try {
             const userId = req.user?.id;
+            const userPosisi = req.user?.posisi;
             if (!userId) {
                 res.status(401).json({
                     success: false,
                     message: "Authentication required",
+                });
+                return;
+            }
+            // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can stop activities
+            if (userPosisi !== "GROUP_LEADER_MEKANIK" &&
+                userPosisi !== "GROUP_LEADER_TYRE") {
+                res.status(403).json({
+                    success: false,
+                    message: "Only Group Leaders can stop activities",
                 });
                 return;
             }
@@ -1256,10 +1277,20 @@ class MechanicsController {
     async startTask(req, res) {
         try {
             const userId = req.user?.id;
+            const userPosisi = req.user?.posisi;
             if (!userId) {
                 res.status(401).json({
                     success: false,
                     message: "Authentication required",
+                });
+                return;
+            }
+            // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can start tasks
+            if (userPosisi !== "GROUP_LEADER_MEKANIK" &&
+                userPosisi !== "GROUP_LEADER_TYRE") {
+                res.status(403).json({
+                    success: false,
+                    message: "Only Group Leaders can start tasks",
                 });
                 return;
             }
@@ -1413,10 +1444,20 @@ class MechanicsController {
     async stopTask(req, res) {
         try {
             const userId = req.user?.id;
+            const userPosisi = req.user?.posisi;
             if (!userId) {
                 res.status(401).json({
                     success: false,
                     message: "Authentication required",
+                });
+                return;
+            }
+            // Only GROUP_LEADER_MEKANIK and GROUP_LEADER_TYRE can stop tasks
+            if (userPosisi !== "GROUP_LEADER_MEKANIK" &&
+                userPosisi !== "GROUP_LEADER_TYRE") {
+                res.status(403).json({
+                    success: false,
+                    message: "Only Group Leaders can stop tasks",
                 });
                 return;
             }
@@ -1501,7 +1542,8 @@ class MechanicsController {
                 },
             });
             // Check if all tasks are completed (all have startedAt and stoppedAt)
-            const allTasksCompleted = allTasks.length > 0 && allTasks.every((t) => t.startedAt && t.stoppedAt);
+            const allTasksCompleted = allTasks.length > 0 &&
+                allTasks.every((t) => t.startedAt && t.stoppedAt);
             // If all tasks are completed, mark the mechanic assignment as COMPLETED
             if (allTasksCompleted) {
                 // Calculate total work time from all tasks

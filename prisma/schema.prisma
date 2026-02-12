@@ -25,6 +25,7 @@ model User {
   password            String
   activityAssignments ActivityMechanic[]
   workTimes           MechanicWorkTime[]
+  assignedActivities  MechanicActivity[] @relation("AssignedGroupLeader")
 }
 
 model Unit {
@@ -43,19 +44,21 @@ model Unit {
 }
 
 model MechanicActivity {
-  id             String             @id @default(uuid())
-  activityName   ActivityName
-  unitId         String
-  description    String?
-  remarks        String?
-  activityStatus ActivityStatus     @default(PENDING)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  createdBy      String             @default(uuid())
-  updatedBy      String?
-  estimatedStart DateTime
-  mechanics      ActivityMechanic[]
-  unit           Unit               @relation(fields: [unitId], references: [id])
+  id                  String             @id @default(uuid())
+  activityName        ActivityName
+  unitId              String
+  description         String?
+  remarks             String?
+  activityStatus      ActivityStatus     @default(PENDING)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  createdBy           String             @default(uuid())
+  updatedBy           String?
+  estimatedStart      DateTime
+  assignedGroupLeaderId String?
+  assignedGroupLeader User?              @relation("AssignedGroupLeader", fields: [assignedGroupLeaderId], references: [id])
+  mechanics           ActivityMechanic[]
+  unit                Unit               @relation(fields: [unitId], references: [id])
 }
 
 model ActivityMechanic {

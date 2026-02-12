@@ -34,7 +34,7 @@ export class GroupLeaderRouter {
           });
         }
       },
-      (req, res) => this.groupLeaderController.getAllActivities(req, res)
+      (req, res) => this.groupLeaderController.getAllActivities(req, res),
     );
 
     // Assign mechanics to activity - MUST be before /activities/:id to avoid route conflict
@@ -57,7 +57,7 @@ export class GroupLeaderRouter {
           });
         }
       },
-      (req, res) => this.groupLeaderController.assignMechanics(req, res)
+      (req, res) => this.groupLeaderController.assignMechanics(req, res),
     );
 
     // Get activity by id - accessible by GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE, ADMIN, SUPERADMIN
@@ -80,7 +80,7 @@ export class GroupLeaderRouter {
           });
         }
       },
-      (req, res) => this.groupLeaderController.getActivityById(req, res)
+      (req, res) => this.groupLeaderController.getActivityById(req, res),
     );
 
     // Update activity - accessible by GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE, ADMIN, SUPERADMIN
@@ -103,7 +103,7 @@ export class GroupLeaderRouter {
           });
         }
       },
-      (req, res) => this.groupLeaderController.updateActivity(req, res)
+      (req, res) => this.groupLeaderController.updateActivity(req, res),
     );
 
     // Get mechanics - accessible by GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE, ADMIN, SUPERADMIN
@@ -126,7 +126,97 @@ export class GroupLeaderRouter {
           });
         }
       },
-      (req, res) => this.groupLeaderController.getMechanics(req, res)
+      (req, res) => this.groupLeaderController.getMechanics(req, res),
+    );
+
+    // Start activity for all mechanics - accessible by GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE
+    this.router.post(
+      "/activities/:id/start-all",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "GROUP_LEADER_MEKANIK" ||
+          req.user?.posisi === "GROUP_LEADER_TYRE"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only GROUP_LEADER_MEKANIK or GROUP_LEADER_TYRE can start activities.",
+          });
+        }
+      },
+      (req, res) =>
+        this.groupLeaderController.startActivityForAllMechanics(req, res),
+    );
+
+    // Stop activity for all mechanics - accessible by GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE
+    this.router.post(
+      "/activities/:id/stop-all",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "GROUP_LEADER_MEKANIK" ||
+          req.user?.posisi === "GROUP_LEADER_TYRE"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only GROUP_LEADER_MEKANIK or GROUP_LEADER_TYRE can stop activities.",
+          });
+        }
+      },
+      (req, res) =>
+        this.groupLeaderController.stopActivityForAllMechanics(req, res),
+    );
+
+    // Start task for a specific mechanic - accessible by GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE
+    this.router.post(
+      "/activities/:activityId/mechanics/:mechanicId/tasks/start",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "GROUP_LEADER_MEKANIK" ||
+          req.user?.posisi === "GROUP_LEADER_TYRE" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE, ADMIN, or SUPERADMIN can start tasks.",
+          });
+        }
+      },
+      (req, res) => this.groupLeaderController.startMechanicTask(req, res),
+    );
+
+    // Stop task for a specific mechanic - accessible by GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE
+    this.router.post(
+      "/activities/:activityId/mechanics/:mechanicId/tasks/stop",
+      authenticate,
+      (req, res, next) => {
+        if (
+          req.user?.posisi === "GROUP_LEADER_MEKANIK" ||
+          req.user?.posisi === "GROUP_LEADER_TYRE" ||
+          req.user?.role === "ADMIN" ||
+          req.user?.role === "SUPERADMIN"
+        ) {
+          next();
+        } else {
+          res.status(403).json({
+            success: false,
+            message:
+              "Insufficient permissions. Only GROUP_LEADER_MEKANIK, GROUP_LEADER_TYRE, ADMIN, or SUPERADMIN can stop tasks.",
+          });
+        }
+      },
+      (req, res) => this.groupLeaderController.stopMechanicTask(req, res),
     );
   }
 
@@ -134,4 +224,3 @@ export class GroupLeaderRouter {
     return this.router;
   }
 }
-
