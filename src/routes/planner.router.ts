@@ -287,6 +287,35 @@ export class PlannerRouter {
       (req, res) => this.plannerController.downloadMechanicsReportExcel(req, res)
     );
 
+    // Download single mechanic report Excel - MUST be before the generic :mechanicId route
+    this.router.get(
+      "/mechanics-report/:mechanicId/download/excel",
+      authenticate,
+      (req, res, next) => {
+        // Allow ADMIN and SUPERADMIN roles
+        if (req.user?.role === "ADMIN" || req.user?.role === "SUPERADMIN") {
+          next();
+          return;
+        }
+        // Allow PLANNER, SUPERVISOR (maps to PLANNER), DEPT_HEAD, MANAGEMENT (maps to SUPERADMIN) posisi
+        if (
+          req.user?.posisi === "PLANNER" ||
+          req.user?.posisi === "SUPERVISOR" ||
+          req.user?.posisi === "DEPT_HEAD" ||
+          req.user?.posisi === "MANAGEMENT"
+        ) {
+          next();
+          return;
+        }
+        res.status(403).json({
+          success: false,
+          message:
+            "Insufficient permissions. Only PLANNER, SUPERVISOR, ADMIN, SUPERADMIN, DEPT_HEAD, or MANAGEMENT can access.",
+        });
+      },
+      (req, res) => this.plannerController.downloadMechanicReportExcelById(req, res)
+    );
+
     // Get single mechanic report by ID - MUST be after download routes to avoid route conflicts
     this.router.get(
       "/mechanics-report/:mechanicId",

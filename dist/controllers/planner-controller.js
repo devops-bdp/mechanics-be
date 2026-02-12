@@ -1683,6 +1683,254 @@ class PlannerController {
             });
         }
     }
+    async downloadMechanicReportExcelById(req, res) {
+        try {
+            const { mechanicId } = req.params;
+            const id = Array.isArray(mechanicId) ? mechanicId[0] : mechanicId;
+            if (!id) {
+                res.status(400).json({
+                    success: false,
+                    message: "Mechanic ID is required",
+                });
+                return;
+            }
+            // Get the mechanic
+            const mechanic = await this.prisma.user.findUnique({
+                where: {
+                    id,
+                    posisi: "MEKANIK",
+                },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    nrp: true,
+                    email: true,
+                },
+            });
+            if (!mechanic) {
+                res.status(404).json({
+                    success: false,
+                    message: "Mechanic not found",
+                });
+                return;
+            }
+            // Get all activity assignments for this mechanic
+            const activityAssignments = await this.prisma.activityMechanic.findMany({
+                where: {
+                    mechanicId: mechanic.id,
+                },
+                include: {
+                    activity: {
+                        select: {
+                            id: true,
+                            activityName: true,
+                            unit: {
+                                select: {
+                                    id: true,
+                                    unitCode: true,
+                                    unitType: true,
+                                    unitBrand: true,
+                                },
+                            },
+                        },
+                    },
+                    tasks: {
+                        orderBy: {
+                            order: "asc",
+                        },
+                    },
+                },
+                orderBy: {
+                    createdAt: "desc",
+                },
+            });
+            // Process activities and tasks with time calculations
+            const activities = activityAssignments.map((assignment) => {
+                const tasksWithTime = assignment.tasks.map((task) => {
+                    let durationSeconds = 0;
+                    let isActive = false;
+                    if (task.startedAt && task.stoppedAt) {
+                        durationSeconds = Math.floor((task.stoppedAt.getTime() - task.startedAt.getTime()) / 1000);
+                    }
+                    else if (task.startedAt && !task.stoppedAt) {
+                        const now = new Date();
+                        durationSeconds = Math.floor((now.getTime() - task.startedAt.getTime()) / 1000);
+                        isActive = true;
+                    }
+                    const hours = Math.floor(durationSeconds / 3600);
+                    const minutes = Math.floor((durationSeconds % 3600) / 60);
+                    const seconds = durationSeconds % 60;
+                    const durationFormatted = this.formatDuration(hours, minutes, seconds, isActive);
+                    return {
+                        id: task.id,
+                        taskName: task.taskName,
+                        order: task.order,
+                        startedAt: task.startedAt,
+                        stoppedAt: task.stoppedAt,
+                        durationSeconds,
+                        durationFormatted,
+                        isActive,
+                    };
+                });
+                const totalActivitySeconds = tasksWithTime.reduce((sum, task) => sum + task.durationSeconds, 0);
+                const totalHours = Math.floor(totalActivitySeconds / 3600);
+                const totalMinutes = Math.floor((totalActivitySeconds % 3600) / 60);
+                const totalSeconds = totalActivitySeconds % 60;
+                const totalActivityTimeFormatted = this.formatDuration(totalHours, totalMinutes, totalSeconds);
+                return {
+                    id: assignment.id,
+                    activityId: assignment.activity.id,
+                    activityName: assignment.activity.activityName,
+                    unitCode: assignment.activity.unit.unitCode,
+                    unitType: assignment.activity.unit.unitType,
+                    unitBrand: assignment.activity.unit.unitBrand,
+                    status: assignment.status,
+                    startedAt: assignment.startedAt,
+                    stoppedAt: assignment.stoppedAt,
+                    createdAt: assignment.createdAt,
+                    tasks: tasksWithTime,
+                    totalActivitySeconds,
+                    totalActivityTimeFormatted,
+                };
+            });
+            const totalMechanicSeconds = activities.reduce((sum, activity) => sum + activity.totalActivitySeconds, 0);
+            const totalMechanicHours = Math.floor(totalMechanicSeconds / 3600);
+            const totalMechanicMinutes = Math.floor((totalMechanicSeconds % 3600) / 60);
+            const totalMechanicSecs = totalMechanicSeconds % 60;
+            const totalMechanicTimeFormatted = this.formatDuration(totalMechanicHours, totalMechanicMinutes, totalMechanicSecs);
+            // Create Excel workbook
+            const workbook = new exceljs_1.default.Workbook();
+            const worksheet = workbook.addWorksheet("Mechanic Report");
+            // Set column widths (without headers to avoid auto-creating first row)
+            worksheet.columns = [
+                { width: 30 }, // Activity Name
+                { width: 15 }, // Unit Code
+                { width: 15 }, // Unit Type
+                { width: 15 }, // Unit Brand
+                { width: 18 }, // Activity Status
+                { width: 18 }, // Activity Time
+                { width: 12 }, // Task Order
+                { width: 30 }, // Task Name
+                { width: 18 }, // Task Duration
+                { width: 20 }, // Task Started
+                { width: 20 }, // Task Stopped
+            ];
+            // Add mechanic info as first row (merged cells)
+            worksheet.mergeCells("A1:K1");
+            const mechanicInfoRow = worksheet.getRow(1);
+            mechanicInfoRow.height = 25;
+            mechanicInfoRow.getCell(1).value = `Mechanic: ${mechanic.firstName} ${mechanic.lastName} | NRP: ${mechanic.nrp} | Email: ${mechanic.email} | Total Activities: ${activities.length} | Total Work Time: ${totalMechanicTimeFormatted}`;
+            mechanicInfoRow.getCell(1).font = { bold: true, size: 12 };
+            mechanicInfoRow.getCell(1).fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FFE7E6E6" },
+            };
+            mechanicInfoRow.getCell(1).alignment = {
+                vertical: "middle",
+                horizontal: "center",
+            };
+            // Add header row after mechanic info
+            const headerRow = worksheet.addRow([
+                "Activity Name",
+                "Unit Code",
+                "Unit Type",
+                "Unit Brand",
+                "Activity Status",
+                "Activity Time",
+                "Task Order",
+                "Task Name",
+                "Task Duration",
+                "Task Started",
+                "Task Stopped",
+            ]);
+            headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+            headerRow.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FF4472C4" },
+            };
+            // Add data rows
+            if (activities.length === 0) {
+                worksheet.addRow([
+                    "No activities",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                    "-",
+                ]);
+            }
+            else {
+                activities.forEach((activity) => {
+                    if (activity.tasks.length === 0) {
+                        // Activity with no tasks
+                        worksheet.addRow([
+                            activity.activityName.replace(/_/g, " "),
+                            activity.unitCode,
+                            activity.unitType,
+                            activity.unitBrand,
+                            activity.status,
+                            activity.totalActivityTimeFormatted,
+                            "-",
+                            "No tasks",
+                            "-",
+                            "-",
+                            "-",
+                        ]);
+                    }
+                    else {
+                        // Activity with tasks
+                        activity.tasks.forEach((task, taskIndex) => {
+                            const startedAtStr = task.startedAt
+                                ? new Date(task.startedAt).toLocaleString("id-ID")
+                                : "-";
+                            const stoppedAtStr = task.stoppedAt
+                                ? new Date(task.stoppedAt).toLocaleString("id-ID")
+                                : task.isActive
+                                    ? "In Progress"
+                                    : "-";
+                            worksheet.addRow([
+                                taskIndex === 0
+                                    ? activity.activityName.replace(/_/g, " ")
+                                    : "",
+                                taskIndex === 0 ? activity.unitCode : "",
+                                taskIndex === 0 ? activity.unitType : "",
+                                taskIndex === 0 ? activity.unitBrand : "",
+                                taskIndex === 0 ? activity.status : "",
+                                taskIndex === 0 ? activity.totalActivityTimeFormatted : "",
+                                task.order,
+                                task.taskName.replace(/_/g, " "),
+                                task.durationFormatted,
+                                startedAtStr,
+                                stoppedAtStr,
+                            ]);
+                        });
+                    }
+                });
+            }
+            // Set response headers
+            res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            const fileName = `mechanic-report-${mechanic.firstName}-${mechanic.lastName}-${mechanic.nrp}-${new Date().toISOString().split("T")[0]}.xlsx`;
+            res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+            await workbook.xlsx.write(res);
+            res.end();
+        }
+        catch (error) {
+            console.error("Error generating Excel for mechanic:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to generate Excel report",
+                error: error.message,
+            });
+        }
+    }
     // Get activity analytics - shows activity distribution by status and type
     async getActivityAnalytics(req, res) {
         try {
