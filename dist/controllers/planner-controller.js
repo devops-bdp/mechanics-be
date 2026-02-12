@@ -492,6 +492,15 @@ class PlannerController {
                             unitDescription: true,
                         },
                     },
+                    assignedGroupLeader: {
+                        select: {
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            nrp: true,
+                            email: true,
+                        },
+                    },
                     mechanics: {
                         include: {
                             mechanic: {

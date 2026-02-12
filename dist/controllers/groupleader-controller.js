@@ -1163,6 +1163,8 @@ class GroupLeaderController {
         }
     }
     // Start task for a specific mechanic (group leader can control any mechanic's tasks)
+    // NOTE: When starting a task for one mechanic, the same task will be started
+    // for ALL mechanics assigned to the same activity (if valid for them).
     async startMechanicTask(req, res) {
         try {
             const userId = req.user?.id;
@@ -1189,11 +1191,10 @@ class GroupLeaderController {
             const { taskName } = req.body;
             const id = Array.isArray(activityId) ? activityId[0] : activityId;
             const mechId = Array.isArray(mechanicId) ? mechanicId[0] : mechanicId;
-            // Check if activity assignment exists for the specified mechanic
-            const assignment = await this.prisma.activityMechanic.findFirst({
+            // Get all mechanic assignments for this activity
+            const allAssignments = await this.prisma.activityMechanic.findMany({
                 where: {
                     activityId: id,
-                    mechanicId: mechId,
                 },
                 include: {
                     activity: true,
@@ -1204,6 +1205,7 @@ class GroupLeaderController {
                     },
                 },
             });
+            const assignment = allAssignments.find((a) => a.mechanicId === mechId);
             if (!assignment) {
                 res.status(404).json({
                     success: false,
@@ -1244,84 +1246,85 @@ class GroupLeaderController {
                 taskOrder[task.taskName] = task.order;
             });
             const currentTaskOrder = taskOrder[taskName];
-            // Check if previous tasks are completed
-            for (let i = 1; i < currentTaskOrder; i++) {
-                const prevTaskName = Object.keys(taskOrder).find((key) => taskOrder[key] === i);
-                const prevTask = assignment.tasks.find((t) => t.taskName === prevTaskName);
-                if (!prevTask || !prevTask.stoppedAt) {
-                    res.status(400).json({
-                        success: false,
-                        message: `Please complete ${prevTaskName?.replace(/_/g, " ")} first`,
+            // Helper to check previous tasks completed for a given assignment
+            const ensurePreviousTasksCompleted = (a) => {
+                for (let i = 1; i < currentTaskOrder; i++) {
+                    const prevTaskName = Object.keys(taskOrder).find((key) => taskOrder[key] === i);
+                    const prevTask = a.tasks.find((t) => t.taskName === prevTaskName);
+                    if (!prevTask || !prevTask.stoppedAt) {
+                        throw new Error(`Please complete ${prevTaskName?.replace(/_/g, " ")} first`);
+                    }
+                }
+            };
+            const startTime = new Date();
+            // Start the task for ALL mechanics assigned to this activity
+            for (const a of allAssignments) {
+                // Only affect mechanics whose activity is in progress
+                if (!a.startedAt || a.status !== "IN_PROGRESS") {
+                    continue;
+                }
+                // Reuse validation for each mechanic
+                ensurePreviousTasksCompleted(a);
+                const existingTaskForMech = a.tasks.find((t) => t.taskName === taskName);
+                // If task already started for this mechanic, skip it
+                if (existingTaskForMech && existingTaskForMech.startedAt) {
+                    continue;
+                }
+                if (existingTaskForMech) {
+                    await this.prisma.task.update({
+                        where: { id: existingTaskForMech.id },
+                        data: {
+                            startedAt: startTime,
+                        },
                     });
-                    return;
+                }
+                else {
+                    await this.prisma.task.create({
+                        data: {
+                            activityMechanicId: a.id,
+                            taskName: taskName,
+                            order: currentTaskOrder,
+                            startedAt: startTime,
+                        },
+                    });
                 }
             }
-            // Check if task already exists and started
-            const existingTask = assignment.tasks.find((t) => t.taskName === taskName);
-            if (existingTask && existingTask.startedAt) {
-                res.status(400).json({
-                    success: false,
-                    message: "Task already started",
-                });
-                return;
-            }
-            const startTime = new Date();
-            // Create or update task
-            let task;
-            if (existingTask) {
-                task = await this.prisma.task.update({
-                    where: { id: existingTask.id },
-                    data: {
-                        startedAt: startTime,
-                    },
-                });
-            }
-            else {
-                task = await this.prisma.task.create({
-                    data: {
-                        activityMechanicId: assignment.id,
-                        taskName: taskName,
-                        order: currentTaskOrder,
-                        startedAt: startTime,
-                    },
-                });
-            }
-            // Get updated assignment with tasks
-            const updated = await this.prisma.activityMechanic.findUnique({
-                where: { id: assignment.id },
+            // Return updated activity with mechanics and tasks
+            const updatedActivity = await this.prisma.mechanicActivity.findUnique({
+                where: { id },
                 include: {
-                    mechanic: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
-                            nrp: true,
-                            email: true,
-                        },
-                    },
-                    activity: {
+                    mechanics: {
                         include: {
-                            unit: {
+                            mechanic: {
                                 select: {
                                     id: true,
-                                    unitCode: true,
-                                    unitType: true,
-                                    unitBrand: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    nrp: true,
+                                    email: true,
+                                },
+                            },
+                            tasks: {
+                                orderBy: {
+                                    order: "asc",
                                 },
                             },
                         },
                     },
-                    tasks: {
-                        orderBy: {
-                            order: "asc",
+                    unit: {
+                        select: {
+                            id: true,
+                            unitCode: true,
+                            unitType: true,
+                            unitBrand: true,
                         },
                     },
                 },
             });
             res.status(200).json({
                 success: true,
-                message: "Task started successfully",
-                data: updated,
+                message: "Task started successfully for all mechanics",
+                data: updatedActivity,
             });
         }
         catch (error) {
@@ -1334,6 +1337,8 @@ class GroupLeaderController {
         }
     }
     // Stop task for a specific mechanic (group leader can control any mechanic's tasks)
+    // NOTE: When stopping a task for one mechanic, the same task will be stopped
+    // for ALL mechanics assigned to the same activity (if it is running for them).
     async stopMechanicTask(req, res) {
         try {
             const userId = req.user?.id;
@@ -1360,17 +1365,17 @@ class GroupLeaderController {
             const { taskName } = req.body;
             const id = Array.isArray(activityId) ? activityId[0] : activityId;
             const mechId = Array.isArray(mechanicId) ? mechanicId[0] : mechanicId;
-            // Check if activity assignment exists for the specified mechanic
-            const assignment = await this.prisma.activityMechanic.findFirst({
+            // Get all mechanic assignments for this activity
+            const allAssignments = await this.prisma.activityMechanic.findMany({
                 where: {
                     activityId: id,
-                    mechanicId: mechId,
                 },
                 include: {
                     activity: true,
                     tasks: true,
                 },
             });
+            const assignment = allAssignments.find((a) => a.mechanicId === mechId);
             if (!assignment) {
                 res.status(404).json({
                     success: false,
@@ -1397,105 +1402,86 @@ class GroupLeaderController {
                 });
                 return;
             }
-            // Find the task
-            const task = assignment.tasks.find((t) => t.taskName === taskName);
-            if (!task) {
-                res.status(404).json({
-                    success: false,
-                    message: "Task not found",
-                });
-                return;
-            }
-            // Check if task is started
-            if (!task.startedAt) {
-                res.status(400).json({
-                    success: false,
-                    message: "Task must be started before stopping",
-                });
-                return;
-            }
-            // Check if task is already stopped
-            if (task.stoppedAt) {
-                res.status(400).json({
-                    success: false,
-                    message: "Task already stopped",
-                });
-                return;
-            }
             const stopTime = new Date();
-            // Stop the task
-            await this.prisma.task.update({
-                where: { id: task.id },
-                data: {
-                    stoppedAt: stopTime,
-                },
-            });
-            // Check if all tasks for this mechanic are completed
-            const allTasks = await this.prisma.task.findMany({
-                where: { activityMechanicId: assignment.id },
-                orderBy: {
-                    order: "asc",
-                },
-            });
-            // Check if all tasks are completed (all have startedAt and stoppedAt)
-            const allTasksCompleted = allTasks.length > 0 &&
-                allTasks.every((t) => t.startedAt && t.stoppedAt);
-            // If all tasks are completed, mark the mechanic assignment as COMPLETED
-            if (allTasksCompleted) {
-                // Calculate total work time from all tasks
-                let totalWorkTime = 0;
-                for (const t of allTasks) {
-                    if (t.startedAt) {
-                        const taskStopTime = t.stoppedAt || stopTime;
-                        const taskDuration = Math.floor((taskStopTime.getTime() - t.startedAt.getTime()) / 60000);
-                        totalWorkTime += taskDuration;
-                    }
+            // For each mechanic assignment on this activity, stop the task if it is running,
+            // and update assignment status/totalWorkTime when all tasks are completed.
+            for (const a of allAssignments) {
+                const taskForMech = a.tasks.find((t) => t.taskName === taskName);
+                // If task doesn't exist or hasn't started, skip this mechanic
+                if (!taskForMech || !taskForMech.startedAt || taskForMech.stoppedAt) {
+                    continue;
                 }
-                await this.prisma.activityMechanic.update({
-                    where: { id: assignment.id },
+                // Stop the task
+                await this.prisma.task.update({
+                    where: { id: taskForMech.id },
                     data: {
-                        status: "COMPLETED",
                         stoppedAt: stopTime,
-                        totalWorkTime: totalWorkTime > 0 ? totalWorkTime : 0,
                     },
                 });
-            }
-            // Get updated assignment with tasks
-            const updated = await this.prisma.activityMechanic.findUnique({
-                where: { id: assignment.id },
-                include: {
-                    mechanic: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
-                            nrp: true,
-                            email: true,
-                        },
+                // Check if all tasks for this mechanic are completed
+                const allTasks = await this.prisma.task.findMany({
+                    where: { activityMechanicId: a.id },
+                    orderBy: {
+                        order: "asc",
                     },
-                    activity: {
+                });
+                const allTasksCompleted = allTasks.length > 0 &&
+                    allTasks.every((t) => t.startedAt && t.stoppedAt);
+                if (allTasksCompleted) {
+                    let totalWorkTime = 0;
+                    for (const t of allTasks) {
+                        if (t.startedAt) {
+                            const taskStopTime = t.stoppedAt || stopTime;
+                            const taskDuration = Math.floor((taskStopTime.getTime() - t.startedAt.getTime()) / 60000);
+                            totalWorkTime += taskDuration;
+                        }
+                    }
+                    await this.prisma.activityMechanic.update({
+                        where: { id: a.id },
+                        data: {
+                            status: "COMPLETED",
+                            stoppedAt: stopTime,
+                            totalWorkTime: totalWorkTime > 0 ? totalWorkTime : 0,
+                        },
+                    });
+                }
+            }
+            // Return updated activity with mechanics and tasks
+            const updatedActivity = await this.prisma.mechanicActivity.findUnique({
+                where: { id },
+                include: {
+                    mechanics: {
                         include: {
-                            unit: {
+                            mechanic: {
                                 select: {
                                     id: true,
-                                    unitCode: true,
-                                    unitType: true,
-                                    unitBrand: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    nrp: true,
+                                    email: true,
+                                },
+                            },
+                            tasks: {
+                                orderBy: {
+                                    order: "asc",
                                 },
                             },
                         },
                     },
-                    tasks: {
-                        orderBy: {
-                            order: "asc",
+                    unit: {
+                        select: {
+                            id: true,
+                            unitCode: true,
+                            unitType: true,
+                            unitBrand: true,
                         },
                     },
                 },
             });
             res.status(200).json({
                 success: true,
-                message: "Task stopped successfully",
-                data: updated,
+                message: "Task stopped successfully for all mechanics",
+                data: updatedActivity,
             });
         }
         catch (error) {
