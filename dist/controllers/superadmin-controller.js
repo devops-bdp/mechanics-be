@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SuperAdminController = void 0;
 const client_1 = require("@prisma/client");
 const bcrypt_1 = __importDefault(require("bcrypt"));
+const exceljs_1 = __importDefault(require("exceljs"));
 class SuperAdminController {
     constructor(prisma) {
         this.prisma = prisma;
@@ -107,6 +108,89 @@ class SuperAdminController {
                 success: false,
                 message: "Internal server error",
                 error: process.env.NODE_ENV === "development" ? String(error) : undefined,
+            });
+        }
+    }
+    async downloadUsersExcel(req, res) {
+        try {
+            const { role, posisi, search, sortBy = "createdAt", sortOrder = "desc", } = req.query;
+            const where = {};
+            if (role) {
+                const roleValue = Array.isArray(role) ? role[0] : role;
+                where.role = roleValue;
+            }
+            if (posisi) {
+                const posisiValue = Array.isArray(posisi) ? posisi[0] : posisi;
+                where.posisi = posisiValue;
+            }
+            if (search) {
+                const searchValue = Array.isArray(search) ? search[0] : search;
+                where.OR = [
+                    { email: { contains: searchValue, mode: "insensitive" } },
+                    { firstName: { contains: searchValue, mode: "insensitive" } },
+                    { lastName: { contains: searchValue, mode: "insensitive" } },
+                    { nrp: { equals: parseInt(searchValue) || undefined } },
+                ];
+            }
+            const validSortFields = ["createdAt", "updatedAt", "email", "firstName", "lastName", "nrp"];
+            const sortField = validSortFields.includes(sortBy)
+                ? sortBy
+                : "createdAt";
+            const order = sortOrder === "asc" ? "asc" : "desc";
+            const users = await this.prisma.user.findMany({
+                where,
+                orderBy: {
+                    [sortField]: order,
+                },
+            });
+            const workbook = new exceljs_1.default.Workbook();
+            const worksheet = workbook.addWorksheet("Users");
+            worksheet.columns = [
+                { header: "ID", key: "id", width: 36 },
+                { header: "Email", key: "email", width: 30 },
+                { header: "First Name", key: "firstName", width: 20 },
+                { header: "Last Name", key: "lastName", width: 20 },
+                { header: "NRP", key: "nrp", width: 15 },
+                { header: "Role", key: "role", width: 15 },
+                { header: "Posisi", key: "posisi", width: 20 },
+                { header: "Phone Number", key: "phoneNumber", width: 20 },
+                { header: "Created At", key: "createdAt", width: 24 },
+                { header: "Updated At", key: "updatedAt", width: 24 },
+                { header: "Password Hash", key: "password", width: 36 },
+            ];
+            const headerRow = worksheet.getRow(1);
+            headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+            headerRow.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: "FF4472C4" },
+            };
+            users.forEach((user) => {
+                worksheet.addRow({
+                    id: user.id,
+                    email: user.email,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    nrp: user.nrp,
+                    role: user.role,
+                    posisi: user.posisi,
+                    phoneNumber: user.phoneNumber,
+                    createdAt: user.createdAt ? user.createdAt.toISOString() : "",
+                    updatedAt: user.updatedAt ? user.updatedAt.toISOString() : "",
+                    password: user.password,
+                });
+            });
+            res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            res.setHeader("Content-Disposition", `attachment; filename=users-${new Date().toISOString().split("T")[0]}.xlsx`);
+            await workbook.xlsx.write(res);
+            res.end();
+        }
+        catch (error) {
+            console.error("Download users excel error:", error);
+            res.status(500).json({
+                success: false,
+                message: "Failed to generate users excel",
+                error: error.message,
             });
         }
     }

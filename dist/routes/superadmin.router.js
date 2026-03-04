@@ -27,6 +27,20 @@ class SuperAdminRouter {
                 });
             }
         }, (req, res) => this.superAdminController.getAllUsers(req, res));
+        // Download all users as Excel (including password hash) - same permissions as getAllUsers
+        this.router.get("/users/download/excel", auth_middleware_1.authenticate, (req, res, next) => {
+            if (req.user?.role === "SUPERADMIN" ||
+                req.user?.posisi === "DEPT_HEAD" ||
+                req.user?.posisi === "MANAGEMENT") {
+                next();
+            }
+            else {
+                res.status(403).json({
+                    success: false,
+                    message: "Insufficient permissions",
+                });
+            }
+        }, (req, res) => this.superAdminController.downloadUsersExcel(req, res));
         // Get user by id - SUPERADMIN role or DEPT_HEAD/MANAGEMENT posisi (maps to SUPERADMIN) can access
         this.router.get("/users/:id", auth_middleware_1.authenticate, (req, res, next) => {
             if (req.user?.role === "SUPERADMIN" ||
